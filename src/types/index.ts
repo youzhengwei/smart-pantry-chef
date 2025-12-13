@@ -89,3 +89,19 @@ export interface RecipeWithScore extends Recipe {
 export interface StoreProductWithStore extends StoreProduct {
   store: Store;
 }
+
+export interface NearbyStore {
+  displayName: {
+    text: string;
+    languageCode?: string;
+  };
+  formattedAddress: string;
+  location: {
+    latitude: number;
+    longitude: number;
+  };
+  rating?: number;
+  currentOpeningHours?: {
+    openNow?: boolean;
+  };
+}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { getStores, searchStoreProducts, parseSearchText } from '@/services/firebaseService';
-import { Store, StoreProductWithStore } from '@/types';
+import { Store, StoreProductWithStore, NearbyStore } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +31,10 @@ const StoreLocator: React.FC = () => {
   const [selectedArea, setSelectedArea] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [areas, setAreas] = useState<string[]>([]);
+  const [nearbyStores, setNearbyStores] = useState<NearbyStore[]>([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyError, setNearbyError] = useState<string | null>(null);
+  const [showOpenOnly, setShowOpenOnly] = useState(false);
 
   // Get initial search from navigation state
   const initialSearch = (location.state as { searchItem?: string })?.searchItem || '';
@@ -116,6 +120,76 @@ const StoreLocator: React.FC = () => {
       title: 'AI Parse (Demo)',
       description: `Parsed: item="${parsed.item}", area="${parsed.area}"`,
     });
+  };
+
+  const getUserLocation = (): Promise<{ lat: number; lng: number }> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation is not supported by this browser.'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        (error) => {
+          reject(new Error('Unable to retrieve your location.'));
+        }
+      );
+    });
+  };
+
+  const handleFindNearbyStores = async () => {
+    setNearbyLoading(true);
+    setNearbyError(null);
+    try {
+      const location = await getUserLocation();
+      const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+      if (!apiKey) {
+        throw new Error('Google Places API key not configured');
+      }
+
+      const url = 'https://places.googleapis.com/v1/places:searchNearby';
+      const requestBody = {
+        includedTypes: ["supermarket", "grocery_store"],
+        locationRestriction: {
+          circle: {
+            center: {
+              latitude: location.lat,
+              longitude: location.lng
+            },
+            radius: 3000.0
+          }
+        },
+        maxResultCount: 20
+      };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Places API error: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      setNearbyStores(result.places || []);
+    } catch (error) {
+      console.error('Error finding nearby stores:', error);
+      setNearbyError(error instanceof Error ? error.message : 'Failed to find nearby stores');
+    } finally {
+      setNearbyLoading(false);
+    }
   };
 
   const formatDate = (timestamp: Timestamp) => {
@@ -206,6 +280,57 @@ const StoreLocator: React.FC = () => {
           <p className="text-xs text-muted-foreground">
             Tip: Try natural language search like "cheap eggs near Woodlands" and click the ✨ button
           </p>
+        </CardContent>
+      </Card>
+
+      {/* Nearby Stores Card */}
+      <Card className="magnet-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 font-display">
+            <MapPin className="h-5 w-5" />
+            Nearby Stores
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button onClick={handleFindNearbyStores} disabled={nearbyLoading}>
+            {nearbyLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <MapPin className="mr-2 h-4 w-4" />
+            )}
+            Use my location
+          </Button>
+          {nearbyError && <p className="text-destructive">{nearbyError}</p>}
+          {nearbyStores.length > 0 && (
+            <>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="openOnly"
+                  checked={showOpenOnly}
+                  onChange={(e) => setShowOpenOnly(e.target.checked)}
+                  className="rounded"
+                />
+                <Label htmlFor="openOnly">Show only open stores</Label>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {(showOpenOnly ? nearbyStores.filter(store => store.currentOpeningHours?.openNow) : nearbyStores).map((store, idx) => (
+                  <Card key={idx} className="magnet-card">
+                    <CardContent className="p-4">
+                      <h4 className="font-semibold">{store.displayName.text}</h4>
+                      <p className="text-sm text-muted-foreground">{store.formattedAddress}</p>
+                      {store.rating && <p className="text-sm">Rating: {store.rating}</p>}
+                      {store.currentOpeningHours?.openNow !== undefined && (
+                        <Badge variant={store.currentOpeningHours.openNow ? 'default' : 'secondary'}>
+                          {store.currentOpeningHours.openNow ? 'Open now' : 'Closed'}
+                        </Badge>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
