@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { getStores, searchStoreProducts, parseSearchText } from '@/services/firebaseService';
-import { Store, StoreProductWithStore, NearbyStore } from '@/types';
+import { getStores } from '@/services/firebaseService';
+import { Store, NearbyStore } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,52 +18,36 @@ import {
   Check,
   X,
   ShoppingCart,
-  Sparkles
+  Sparkles,
+  Navigation
 } from 'lucide-react';
 
 const StoreLocator: React.FC = () => {
   const location = useLocation();
   const { toast } = useToast();
   const [stores, setStores] = useState<Store[]>([]);
-  const [results, setResults] = useState<StoreProductWithStore[]>([]);
+  const [results, setResults] = useState<NearbyStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [selectedArea, setSelectedArea] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [areas, setAreas] = useState<string[]>([]);
   const [nearbyStores, setNearbyStores] = useState<NearbyStore[]>([]);
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyError, setNearbyError] = useState<string | null>(null);
   const [showOpenOnly, setShowOpenOnly] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [selectedStoreType, setSelectedStoreType] = useState('all');
 
   // Get initial search from navigation state
   const initialSearch = (location.state as { searchItem?: string })?.searchItem || '';
 
   useEffect(() => {
     loadStores();
-    if (initialSearch) {
-      setSearchQuery(initialSearch);
-    }
   }, []);
-
-  useEffect(() => {
-    if (initialSearch && selectedArea) {
-      handleSearch();
-    }
-  }, [selectedArea]);
 
   const loadStores = async () => {
     try {
       const storesData = await getStores();
       setStores(storesData);
-      
-      // Extract unique areas
-      const uniqueAreas = [...new Set(storesData.map(s => s.area))];
-      setAreas(uniqueAreas);
-      
-      if (uniqueAreas.length > 0) {
-        setSelectedArea(uniqueAreas[0]);
-      }
     } catch (error) {
       console.error('Error loading stores:', error);
     } finally {
@@ -72,10 +56,10 @@ const StoreLocator: React.FC = () => {
   };
 
   const handleSearch = async () => {
-    if (!selectedArea || !searchQuery.trim()) {
+    if (!selectedArea.trim()) {
       toast({
-        title: 'Please enter search criteria',
-        description: 'Select an area and enter an item to search.',
+        title: 'Please enter an area',
+        description: 'Enter an area name to search for stores.',
         variant: 'destructive',
       });
       return;
@@ -83,43 +67,177 @@ const StoreLocator: React.FC = () => {
 
     setSearching(true);
     try {
-      const keywords = searchQuery.split(' ').filter(k => k.length > 0);
-      const searchResults = await searchStoreProducts(selectedArea, keywords);
-      setResults(searchResults);
-      
-      if (searchResults.length === 0) {
+      const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+      if (!apiKey) {
+        throw new Error('Google Places API key not configured');
+      }
+
+      let allStores: NearbyStore[] = [];
+
+      if (selectedStoreType === 'convenience_store') {
+        // For convenience stores, do two searches: general convenience stores + specific chains
+        const convenienceQuery = `convenience stores in ${selectedArea.trim()}, Hong Kong or Singapore`;
+        const chainsQuery = `7-eleven or cheers or choices in ${selectedArea.trim()}, Hong Kong or Singapore`;
+
+        // Search 1: General convenience stores
+        const convRequestBody = {
+          textQuery: convenienceQuery,
+          includedType: "convenience_store",
+          maxResultCount: 25,
+          locationRestriction: {
+            rectangle: {
+              low: { latitude: 1.1, longitude: 103.5 },
+              high: { latitude: 22.6, longitude: 114.5 }
+            }
+          }
+        };
+
+        // Search 2: Specific convenience chains
+        const chainsRequestBody = {
+          textQuery: chainsQuery,
+          maxResultCount: 25,
+          locationRestriction: {
+            rectangle: {
+              low: { latitude: 1.1, longitude: 103.5 },
+              high: { latitude: 22.6, longitude: 114.5 }
+            }
+          }
+        };
+
+        const [convResponse, chainsResponse] = await Promise.all([
+          fetch(`https://places.googleapis.com/v1/places:searchText`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Goog-Api-Key': apiKey,
+              'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
+            },
+            body: JSON.stringify(convRequestBody)
+          }),
+          fetch(`https://places.googleapis.com/v1/places:searchText`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Goog-Api-Key': apiKey,
+              'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
+            },
+            body: JSON.stringify(chainsRequestBody)
+          })
+        ]);
+
+        if (!convResponse.ok || !chainsResponse.ok) {
+          throw new Error('Places API search failed');
+        }
+
+        const convResult = await convResponse.json();
+        const chainsResult = await chainsResponse.json();
+
+        // Combine results and remove duplicates
+        const convStores = convResult.places || [];
+        const chainsStores = chainsResult.places || [];
+        
+        // Remove duplicates based on location
+        const allResults = [...convStores, ...chainsStores];
+        const uniqueStores = allResults.filter((store, index, self) => 
+          index === self.findIndex(s => 
+            s.location.latitude === store.location.latitude && 
+            s.location.longitude === store.location.longitude
+          )
+        );
+
+        allStores = uniqueStores;
+      } else {
+        // For other store types, use the regular single search
+        const url = `https://places.googleapis.com/v1/places:searchText`;
+        const requestBody: any = {
+          textQuery: selectedStoreType === 'all' 
+            ? `supermarkets and convenience stores in ${selectedArea.trim()}, Hong Kong or Singapore`
+            : `${selectedStoreType.replace('_', ' ')} in ${selectedArea.trim()}, Hong Kong or Singapore`,
+          maxResultCount: 50,
+          locationRestriction: {
+            rectangle: {
+              low: { latitude: 1.1, longitude: 103.5 },
+              high: { latitude: 22.6, longitude: 114.5 }
+            }
+          }
+        };
+
+        // Only use includedType for convenience_store, not for supermarket to get more results
+        if (selectedStoreType !== 'all' && selectedStoreType !== 'supermarket') {
+          requestBody.includedType = selectedStoreType;
+        }
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Places API error: ${response.status} - ${errorText}`);
+        }
+
+        const result = await response.json();
+        allStores = result.places || [];
+      }
+
+      // Filter to only include stores in Hong Kong or Singapore
+      const stores = allStores.filter((store: NearbyStore) => {
+        const address = store.formattedAddress.toLowerCase();
+        const name = store.displayName.text.toLowerCase();
+        const searchArea = selectedArea.trim().toLowerCase();
+
+        // Check if address contains HK/SG indicators
+        const hasHKSG = address.includes('singapore') || address.includes('hong kong') ||
+                       address.includes('hk') || address.includes('sg') ||
+                       address.includes('singapore ') || address.includes('hong kong ');
+
+        // Additional check: coordinates should be within HK/SG bounds
+        const inBounds = (
+          (store.location.latitude >= 1.1 && store.location.latitude <= 1.5 &&
+           store.location.longitude >= 103.5 && store.location.longitude <= 104.1) || // Singapore
+          (store.location.latitude >= 22.1 && store.location.latitude <= 22.6 &&
+           store.location.longitude >= 113.8 && store.location.longitude <= 114.5)   // Hong Kong
+        );
+
+        // Additional check: address should contain the searched area (to avoid irrelevant results)
+        const hasSearchArea = address.includes(searchArea) || 
+                             name.includes(searchArea) ||
+                             // Handle common area variations
+                             (searchArea === 'woodlands' && (address.includes('woodlands') || address.includes('woodland'))) ||
+                             (searchArea === 'yishun' && (address.includes('yishun') || address.includes('yishan'))) ||
+                             (searchArea === 'central' && address.includes('central')) ||
+                             (searchArea === 'orchard' && address.includes('orchard'));
+
+        // Exclude specific unwanted stores
+        const isExcludedStore = name.includes('homekong mart') || name.includes('鄉港旺舖');
+
+        return (hasHKSG || inBounds) && hasSearchArea && !isExcludedStore;
+      });
+
+      setResults(stores);
+
+      if (stores.length === 0) {
         toast({
-          title: 'No results found',
-          description: 'Try a different search term or area.',
+          title: 'No stores found',
+          description: `No stores found in "${selectedArea}". Try a different area name or check spelling.`,
         });
       }
     } catch (error) {
       console.error('Search error:', error);
       toast({
         title: 'Search failed',
-        description: 'Please try again.',
+        description: error instanceof Error ? error.message : 'Please try again.',
         variant: 'destructive',
       });
     } finally {
       setSearching(false);
     }
-  };
-
-  const handleAISearch = () => {
-    const parsed = parseSearchText(searchQuery);
-    if (parsed.area) {
-      const matchedArea = areas.find(a => a.toLowerCase() === parsed.area.toLowerCase());
-      if (matchedArea) {
-        setSelectedArea(matchedArea);
-      }
-    }
-    if (parsed.item) {
-      setSearchQuery(parsed.item);
-    }
-    toast({
-      title: 'AI Parse (Demo)',
-      description: `Parsed: item="${parsed.item}", area="${parsed.area}"`,
-    });
   };
 
   const getUserLocation = (): Promise<{ lat: number; lng: number }> => {
@@ -128,15 +246,43 @@ const StoreLocator: React.FC = () => {
         reject(new Error('Geolocation is not supported by this browser.'));
         return;
       }
+
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Location request timed out. Please check your location permissions.'));
+      }, 10000); // 10 second timeout
+
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          resolve({
+          clearTimeout(timeoutId);
+          const location = {
             lat: position.coords.latitude,
             lng: position.coords.longitude,
-          });
+          };
+          setUserLocation(location);
+          resolve(location);
         },
         (error) => {
-          reject(new Error('Unable to retrieve your location.'));
+          clearTimeout(timeoutId);
+          console.error('Geolocation error:', error);
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              reject(new Error('Location access denied. Please enable location permissions in your browser.'));
+              break;
+            case error.POSITION_UNAVAILABLE:
+              reject(new Error('Location information is unavailable.'));
+              break;
+            case error.TIMEOUT:
+              reject(new Error('Location request timed out.'));
+              break;
+            default:
+              reject(new Error('An unknown location error occurred.'));
+              break;
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000 // 5 minutes
         }
       );
     });
@@ -147,43 +293,94 @@ const StoreLocator: React.FC = () => {
     setNearbyError(null);
     try {
       const location = await getUserLocation();
+      
+      // Check if location is in Hong Kong or Singapore
+      const isInHKSg = (
+        (location.lat >= 1.1 && location.lat <= 1.5 && location.lng >= 103.5 && location.lng <= 104.1) || // Singapore
+        (location.lat >= 22.1 && location.lat <= 22.6 && location.lng >= 113.8 && location.lng <= 114.5)   // Hong Kong
+      );
+      
+      if (!isInHKSg) {
+        throw new Error('Nearby search is only available in Singapore. Please use the area search instead.');
+      }
+      
       const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
       if (!apiKey) {
-        throw new Error('Google Places API key not configured');
+        throw new Error('Google Places API key not configured. Please check your environment variables.');
       }
+
+      console.log('Searching for nearby stores at:', location);
 
       const url = 'https://places.googleapis.com/v1/places:searchNearby';
       const requestBody = {
-        includedTypes: ["supermarket", "grocery_store"],
+        includedTypes: selectedStoreType === 'all' 
+          ? ["supermarket", "convenience_store"]
+          : selectedStoreType === 'convenience_store'
+          ? ["convenience_store", "grocery_store"] // Keep grocery_store for additional convenience chains
+          : [selectedStoreType],
         locationRestriction: {
           circle: {
             center: {
               latitude: location.lat,
               longitude: location.lng
             },
-            radius: 3000.0
+            radius: 8000.0 // Increased from 5000 to 8000 meters
           }
         },
-        maxResultCount: 20
+        maxResultCount: 20, // Google Places API Nearby Search limit is 20
+        rankPreference: "DISTANCE"
       };
+
+      console.log('Making API request to:', url);
+      console.log('Request body:', requestBody);
 
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
+          'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours,places.priceLevel'
         },
         body: JSON.stringify(requestBody)
       });
 
+      console.log('API response status:', response.status);
+
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('API error response:', errorText);
         throw new Error(`Places API error: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
-      setNearbyStores(result.places || []);
+      console.log('API response data:', result);
+
+      // Filter to only include stores in Hong Kong or Singapore
+      const filteredStores = (result.places || []).filter((store: NearbyStore) => {
+        const address = store.formattedAddress.toLowerCase();
+        const name = store.displayName.text.toLowerCase();
+
+        // Check if address contains HK/SG indicators
+        const hasHKSG = address.includes('singapore') || address.includes('hong kong') ||
+                       address.includes('hk') || address.includes('sg') ||
+                       address.includes('singapore ') || address.includes('hong kong ');
+
+        // Additional check: coordinates should be within HK/SG bounds
+        const inBounds = (
+          (store.location.latitude >= 1.1 && store.location.latitude <= 1.5 &&
+           store.location.longitude >= 103.5 && store.location.longitude <= 104.1) || // Singapore
+          (store.location.latitude >= 22.1 && store.location.latitude <= 22.6 &&
+           store.location.longitude >= 113.8 && store.location.longitude <= 114.5)   // Hong Kong
+        );
+
+        return hasHKSG || inBounds;
+      });
+
+      setNearbyStores(filteredStores);
+
+      if (!filteredStores || filteredStores.length === 0) {
+        setNearbyError('No nearby stores found in Singapore within 8km. Try using the area search instead.');
+      }
     } catch (error) {
       console.error('Error finding nearby stores:', error);
       setNearbyError(error instanceof Error ? error.message : 'Failed to find nearby stores');
@@ -192,9 +389,34 @@ const StoreLocator: React.FC = () => {
     }
   };
 
-  const formatDate = (timestamp: Timestamp) => {
-    const date = timestamp.toDate();
-    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  const getEstimatedTravelTime = (distanceKm: number) => {
+    // Average walking speed: 5 km/h, driving speed: 30 km/h
+    const walkingMinutes = Math.round((distanceKm / 5) * 60);
+    const drivingMinutes = Math.round((distanceKm / 30) * 60);
+
+    return {
+      walking: walkingMinutes < 60 ? `${walkingMinutes} min walk` : `${Math.round(walkingMinutes/60)}h ${walkingMinutes%60}min walk`,
+      driving: drivingMinutes < 60 ? `${drivingMinutes} min drive` : `${Math.round(drivingMinutes/60)}h ${drivingMinutes%60}min drive`
+    };
+  };
+
+  const openInGoogleMaps = (store: NearbyStore) => {
+    // Navigate with directions from user location to store
+    const origin = userLocation ? `${userLocation.lat},${userLocation.lng}` : '';
+    const destination = `${store.location.latitude},${store.location.longitude}`;
+    const url = `https://www.google.com/maps/dir/${origin}/${destination}`;
+    window.open(url, '_blank');
   };
 
   if (loading) {
@@ -210,7 +432,7 @@ const StoreLocator: React.FC = () => {
       {/* Header */}
       <div>
         <h1 className="font-display text-3xl font-bold text-foreground">Store Locator</h1>
-        <p className="text-muted-foreground">Find the best prices for groceries near you</p>
+        <p className="text-muted-foreground">Find stores in Singapore</p>
       </div>
 
       {/* Search Card */}
@@ -218,68 +440,49 @@ const StoreLocator: React.FC = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 font-display">
             <Search className="h-5 w-5" />
-            Search Products
+            Find Stores
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
               <Label htmlFor="area">Area</Label>
-              <Select value={selectedArea} onValueChange={setSelectedArea}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select area" />
+              <Input
+                id="area"
+                placeholder="e.g., Woodlands, Orchard, Central"
+                value={selectedArea}
+                onChange={(e) => setSelectedArea(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="store-type">Store Type</Label>
+              <Select value={selectedStoreType} onValueChange={setSelectedStoreType}>
+                <SelectTrigger id="store-type">
+                  <SelectValue placeholder="Select store type" />
                 </SelectTrigger>
-                <SelectContent className="bg-popover">
-                  {areas.map(area => (
-                    <SelectItem key={area} value={area}>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4" /> {area}
-                      </div>
-                    </SelectItem>
-                  ))}
+                <SelectContent>
+                  <SelectItem value="all">All (Supermarkets & Convenience)</SelectItem>
+                  <SelectItem value="supermarket">Supermarket/Market</SelectItem>
+                  <SelectItem value="convenience_store">Convenience Store</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="search">Search Item</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="search"
-                  placeholder="e.g., eggs, milk, broccoli"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-end gap-2">
-              <Button onClick={handleSearch} disabled={searching} className="flex-1">
+            <div className="flex items-end">
+              <Button onClick={handleSearch} disabled={searching} className="w-full">
                 {searching ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
                     <Search className="mr-2 h-4 w-4" />
-                    Search
+                    Find Stores
                   </>
                 )}
               </Button>
-              <Button 
-                variant="outline" 
-                onClick={handleAISearch}
-                title="Parse natural language search"
-              >
-                <Sparkles className="h-4 w-4" />
-              </Button>
             </div>
           </div>
-
-          <p className="text-xs text-muted-foreground">
-            Tip: Try natural language search like "cheap eggs near Woodlands" and click the ✨ button
-          </p>
         </CardContent>
       </Card>
 
@@ -315,16 +518,54 @@ const StoreLocator: React.FC = () => {
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {(showOpenOnly ? nearbyStores.filter(store => store.currentOpeningHours?.openNow) : nearbyStores).map((store, idx) => (
-                  <Card key={idx} className="magnet-card">
+                  <Card key={idx} className="magnet-card overflow-hidden">
                     <CardContent className="p-4">
-                      <h4 className="font-semibold">{store.displayName.text}</h4>
-                      <p className="text-sm text-muted-foreground">{store.formattedAddress}</p>
-                      {store.rating && <p className="text-sm">Rating: {store.rating}</p>}
-                      {store.currentOpeningHours?.openNow !== undefined && (
-                        <Badge variant={store.currentOpeningHours.openNow ? 'default' : 'secondary'}>
-                          {store.currentOpeningHours.openNow ? 'Open now' : 'Closed'}
+                      <div className="mb-3 flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <StoreIcon className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground">{store.displayName.text}</p>
+                            <p className="text-xs text-muted-foreground">{store.formattedAddress}</p>
+                            {userLocation && (() => {
+                              const distance = calculateDistance(userLocation.lat, userLocation.lng, store.location.latitude, store.location.longitude);
+                              const travelTimes = getEstimatedTravelTime(distance);
+                              return (
+                                <div className="text-xs text-muted-foreground space-y-1">
+                                  <p>{distance.toFixed(1)} km away</p>
+                                  <p>🚶 {travelTimes.walking} • 🚗 {travelTimes.driving}</p>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => openInGoogleMaps(store)}
+                        >
+                          <Navigation className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {store.rating && (
+                            <Badge variant="outline" className="text-xs">
+                              ⭐ {store.rating}
+                            </Badge>
+                          )}
+                          {store.currentOpeningHours?.openNow !== undefined && (
+                            <Badge variant={store.currentOpeningHours.openNow ? 'default' : 'secondary'} className="text-xs">
+                              {store.currentOpeningHours.openNow ? 'Open now' : 'Closed'}
+                            </Badge>
+                          )}
+                        </div>
+                        <Badge className="status-fresh text-xs">
+                          <StoreIcon className="mr-1 h-3 w-3" /> Store Available
                         </Badge>
-                      )}
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -338,11 +579,11 @@ const StoreLocator: React.FC = () => {
       {results.length > 0 && (
         <div className="space-y-4">
           <h2 className="font-display text-xl font-semibold">
-            Found {results.length} result{results.length !== 1 ? 's' : ''}
+            Stores in {selectedArea} ({results.length} result{results.length !== 1 ? 's' : ''})
           </h2>
           
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {results.map((product, idx) => (
+            {results.map((store, idx) => (
               <Card key={idx} className="magnet-card overflow-hidden">
                 <CardContent className="p-4">
                   <div className="mb-3 flex items-start justify-between">
@@ -351,36 +592,44 @@ const StoreLocator: React.FC = () => {
                         <StoreIcon className="h-5 w-5" />
                       </div>
                       <div>
-                        <p className="font-medium text-foreground">{product.store.name}</p>
-                        <p className="text-xs text-muted-foreground">{product.store.address}</p>
+                        <p className="font-medium text-foreground">{store.displayName.text}</p>
+                        <p className="text-xs text-muted-foreground">{store.formattedAddress}</p>
+                        {userLocation && (() => {
+                          const distance = calculateDistance(userLocation.lat, userLocation.lng, store.location.latitude, store.location.longitude);
+                          const travelTimes = getEstimatedTravelTime(distance);
+                          return (
+                            <div className="text-xs text-muted-foreground space-y-1">
+                              <p>{distance.toFixed(1)} km away</p>
+                              <p>🚶 {travelTimes.walking} • 🚗 {travelTimes.driving}</p>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
-                  </div>
-
-                  <div className="mb-3">
-                    <h4 className="font-semibold text-foreground">{product.productName}</h4>
-                    <Badge variant="outline" className="mt-1 text-xs">
-                      {product.category}
-                    </Badge>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => openInGoogleMaps(store)}
+                    >
+                      <Navigation className="h-4 w-4" />
+                    </Button>
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-display text-2xl font-bold text-primary">
-                        ${product.price.toFixed(2)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Updated: {formatDate(product.lastUpdated)}
-                      </p>
-                    </div>
-                    <Badge 
-                      className={product.inStock ? 'status-fresh' : 'status-expired'}
-                    >
-                      {product.inStock ? (
-                        <><Check className="mr-1 h-3 w-3" /> In Stock</>
-                      ) : (
-                        <><X className="mr-1 h-3 w-3" /> Out of Stock</>
+                    <div className="flex items-center gap-2">
+                      {store.rating && (
+                        <Badge variant="outline" className="text-xs">
+                          ⭐ {store.rating}
+                        </Badge>
                       )}
+                      {store.currentOpeningHours?.openNow !== undefined && (
+                        <Badge variant={store.currentOpeningHours.openNow ? 'default' : 'secondary'} className="text-xs">
+                          {store.currentOpeningHours.openNow ? 'Open now' : 'Closed'}
+                        </Badge>
+                      )}
+                    </div>
+                    <Badge className="status-fresh text-xs">
+                      <StoreIcon className="mr-1 h-3 w-3" /> Store Available
                     </Badge>
                   </div>
                 </CardContent>
@@ -397,9 +646,9 @@ const StoreLocator: React.FC = () => {
             <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
               <ShoppingCart className="h-10 w-10 text-muted-foreground" />
             </div>
-            <h3 className="mb-2 font-display text-xl font-semibold">Search for products</h3>
+            <h3 className="mb-2 font-display text-xl font-semibold">Find stores in Singapore</h3>
             <p className="text-center text-muted-foreground">
-              Select an area and enter a product name to find the best prices nearby.
+              Select a store type (All = Supermarkets + Convenience stores) and enter an area in Singapore to find more stores nearby.
             </p>
           </CardContent>
         </Card>
