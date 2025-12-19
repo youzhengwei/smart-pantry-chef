@@ -134,10 +134,16 @@ export const createProduct = async (product: { name: string; brand?: string; cat
 
 export const getRecipes = async (): Promise<Recipe[]> => {
   const snapshot = await getDocs(collection(db, 'recipes'));
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  } as Recipe));
+  return snapshot.docs
+    .map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Recipe))
+    .filter(recipe =>
+      recipe.name &&
+      Array.isArray(recipe.ingredients) &&
+      recipe.ingredients.every(ingredient => typeof ingredient === 'string')
+    );
 };
 
 export const getRecipeAI = async (recipeId: string): Promise<RecipeAI | null> => {
@@ -176,6 +182,12 @@ export const getRecommendedRecipes = async (userId: string): Promise<RecipeWithS
     const missingIngredients: string[] = [];
     
     for (const ingredient of recipe.ingredients) {
+      // Ensure ingredient is a string
+      if (typeof ingredient !== 'string') {
+        console.warn('Skipping non-string ingredient:', ingredient);
+        continue;
+      }
+
       const ingredientLower = ingredient.toLowerCase();
       const isInInventory = inventoryNames.some(name => 
         ingredientLower.includes(name) || name.includes(ingredientLower)

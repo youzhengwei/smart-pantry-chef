@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getRecommendedRecipes, saveRecipe, getSavedRecipes } from '@/services/firebaseService';
-import { generateRecipes, saveRecipes, fetchAIGeneratedRecipes, testWebhookConnection } from '@/services/aiRecipeService';
+import { generateRecipes, saveRecipes, fetchAIGeneratedRecipes } from '@/services/aiRecipeService';
 import { RecipeWithScore, SavedRecipe, AIGeneratedRecipe } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -101,7 +101,7 @@ const Recipes: React.FC = () => {
       console.error('Error generating recipes:', error);
       toast({
         title: 'Generation failed',
-        description: error instanceof Error ? error.message : 'Failed to generate recipes. Please check your webhook configuration and try again.',
+        description: 'Failed to generate recipes. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -179,7 +179,7 @@ const Recipes: React.FC = () => {
               onCheckedChange={(checked) => setStrictOnly(checked as boolean)}
             />
             <Label htmlFor="strict-mode" className="text-sm">
-              Strictly use available ingredients only (allows small amounts of salt, pepper, oil, butter, sugar, flour, water)
+              Strictly use available ingredients only (no additional pantry staples)
             </Label>
           </div>
 
@@ -194,15 +194,6 @@ const Recipes: React.FC = () => {
               onChange={(e) => setPreferenceText(e.target.value)}
               disabled={generating}
             />
-          </div>
-
-          {/* Webhook Status Indicator */}
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Webhook Status</span>
-            <div className="flex items-center gap-1">
-              <div className="h-2 w-2 rounded-full bg-green-500"></div>
-              <span>Connected</span>
-            </div>
           </div>
 
           <Button
@@ -309,40 +300,90 @@ const Recipes: React.FC = () => {
                     {recipe.score}
                   </div>
                 </div>
-                </CardHeader>
-                <CardContent className="p-4">
-                  <div className="mb-4 space-y-3">
-                    <h4 className="font-semibold text-foreground">Ingredients:</h4>
-                    <ul className="space-y-1">
-                      {recipe.ingredients.map((ingredient, index) => (
-                        <li key={index} className="text-sm text-muted-foreground">
-                          • {ingredient}
-                        </li>
-                      ))}
-                    </ul>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="mb-4 space-y-3">
+                  <h4 className="font-semibold text-foreground">Ingredients:</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {recipe.ingredients.map((ingredient, idx) => {
+                      const isExpiring = recipe.expiringIngredients.includes(ingredient);
+                      const isMatched = recipe.matchedIngredients.includes(ingredient);
+                      const isMissing = recipe.missingIngredients.includes(ingredient);
+                      
+                      return (
+                        <Badge 
+                          key={idx}
+                          className={cn(
+                            'text-xs',
+                            isExpiring ? 'status-expiring' :
+                            isMatched ? 'status-fresh' :
+                            isMissing ? 'bg-muted text-muted-foreground' : ''
+                          )}
+                        >
+                          {isExpiring && <Clock className="mr-1 h-3 w-3" />}
+                          {isMatched && !isExpiring && <Check className="mr-1 h-3 w-3" />}
+                          {isMissing && <AlertCircle className="mr-1 h-3 w-3" />}
+                          {ingredient}
+                        </Badge>
+                      );
+                    })}
                   </div>
+                </div>
 
+                {recipe.aiData && (
+                  <p className="mb-4 text-sm text-muted-foreground line-clamp-2">
+                    {recipe.aiData.description}
+                  </p>
+                )}
+
+                <div className="flex gap-2">
                   <Dialog>
                     <DialogTrigger asChild>
-                      <Button variant="outline" className="w-full mb-2">
+                      <Button 
+                        variant="outline" 
+                        className="flex-1"
+                        onClick={() => setSelectedRecipe(recipe)}
+                      >
                         View Recipe
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogContent className="max-h-[80vh] overflow-y-auto bg-card sm:max-w-lg">
                       <DialogHeader>
-                        <DialogTitle className="font-display text-2xl">{recipe.name}</DialogTitle>
+                        <DialogTitle className="font-display text-2xl">
+                          {recipe.name}
+                        </DialogTitle>
                       </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="font-semibold mb-2">Ingredients:</h4>
-                          <ul className="space-y-1">
-                            {recipe.ingredients.map((ingredient, index) => (
-                              <li key={index} className="text-sm">• {ingredient}</li>
-                            ))}
-                          </ul>
-                        </div>
+                      <div className="space-y-6">
+                        {recipe.aiData && (
+                          <>
+                            <p className="text-muted-foreground">{recipe.aiData.description}</p>
+                            
+                            <div>
+                              <h4 className="mb-3 font-semibold">Ingredients</h4>
+                              <div className="flex flex-wrap gap-2">
+                                {recipe.ingredients.map((ingredient, idx) => (
+                                  <Badge key={idx} variant="outline">{ingredient}</Badge>
+                                ))}
+                              </div>
+                            </div>
 
-                        <Button
+                            <div>
+                              <h4 className="mb-3 font-semibold">Steps</h4>
+                              <ol className="space-y-3">
+                                {recipe.aiData.steps.map((step, idx) => (
+                                  <li key={idx} className="flex gap-3">
+                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="text-muted-foreground">{step}</span>
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          </>
+                        )}
+
+                        <Button 
                           onClick={() => handleSaveRecipe(recipe.id!)}
                           className="w-full gap-2"
                           disabled={isRecipeSaved(recipe.id!)}
@@ -353,7 +394,7 @@ const Recipes: React.FC = () => {
                       </div>
                     </DialogContent>
                   </Dialog>
-
+                  
                   <Button
                     variant="outline"
                     size="icon"
@@ -362,12 +403,11 @@ const Recipes: React.FC = () => {
                   >
                     <Heart className={cn("h-4 w-4", isRecipeSaved(recipe.id!) && "fill-current text-primary")} />
                   </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

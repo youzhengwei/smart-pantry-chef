@@ -12,6 +12,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
 import Recipes from "./pages/Recipes";
+import Favourites from "./pages/Favourites";
 import SavedRecipes from "./pages/SavedRecipes";
 import StoreLocator from "./pages/StoreLocator";
 import NotFound from "./pages/NotFound";
@@ -24,7 +25,12 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Landing />} />
@@ -36,6 +42,7 @@ const App = () => (
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/inventory" element={<Inventory />} />
               <Route path="/recipes" element={<Recipes />} />
+              <Route path="/favourites" element={<Favourites />} />
               <Route path="/saved-recipes" element={<SavedRecipes />} />
               <Route path="/store-locator" element={<StoreLocator />} />
             </Route>

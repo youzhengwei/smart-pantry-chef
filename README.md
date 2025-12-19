@@ -50,6 +50,103 @@ npm run dev
 - Click on "New codespace" to launch a new Codespace environment.
 - Edit files directly within the Codespace and commit and push your changes once you're done.
 
+## Webhook Setup for Recipe Generation
+
+The recipe generation feature uses a Railway/n8n webhook for AI-powered recipe creation. To set it up:
+
+### 1. Environment Configuration
+
+Update your `.env` file with the webhook URL:
+
+```env
+VITE_RAILWAY_WEBHOOK_URL=https://your-railway-app.up.railway.app/webhook/generate-recipes
+# Optional: Add authentication token if required
+# VITE_WEBHOOK_TOKEN=your_webhook_token_here
+```
+
+### 2. Railway/n8n Setup
+
+1. Deploy your n8n workflow to Railway
+2. Create a webhook node in n8n that listens for POST requests
+3. Configure the webhook to:
+   - Accept JSON payload with `userId`, `strictOnly`, and `preferenceText`
+   - Fetch user inventory from Firebase Firestore
+   - Call OpenAI API with the inventory data
+   - Return recipes in the expected format
+
+### 3. Webhook Payload Format
+
+The webhook receives:
+```json
+{
+  "userId": "firebase-user-id",
+  "strictOnly": true,
+  "preferenceText": "Italian cuisine",
+  "timestamp": "2025-12-20T10:00:00.000Z"
+}
+```
+
+Expected response format:
+```json
+{
+  "recipes": [
+    {
+      "name": "Recipe Name",
+      "description": "Brief description",
+      "ingredients": ["ingredient 1", "ingredient 2"],
+      "instructions": ["step 1", "step 2"],
+      "prepTime": 15,
+      "cookTime": 30,
+      "servings": 4
+    }
+  ]
+}
+```
+
+### 4. CORS Configuration
+
+**Important**: Your Railway n8n app must allow cross-origin requests from your frontend. In your n8n workflow:
+
+1. Add a **Webhook** node at the start of your workflow
+2. Configure the webhook with:
+   - **HTTP Method**: POST
+   - **Path**: `/webhook/generate-recipes`
+   - **Response Mode**: When Last Node Finishes
+   - **Response Data**: All Data
+
+3. **Add CORS Headers**: In your webhook response, include these headers:
+   ```
+   Access-Control-Allow-Origin: *
+   Access-Control-Allow-Methods: POST, OPTIONS
+   Access-Control-Allow-Headers: Content-Type, Authorization
+   ```
+
+4. **Handle OPTIONS requests**: n8n should automatically handle preflight OPTIONS requests, but if you get CORS errors, ensure your webhook accepts OPTIONS method.
+
+### Alternative: Use a CORS Proxy
+
+If you can't configure CORS in n8n, you can use a CORS proxy service or deploy your own Express server with CORS enabled.
+
+## Quick CORS Fix for Testing
+
+For immediate testing, you can use the included CORS proxy server:
+
+1. **Start the CORS proxy** (in a separate terminal):
+   ```bash
+   npm run cors-proxy
+   ```
+
+2. **Update your environment variable**:
+   ```env
+   VITE_RAILWAY_WEBHOOK_URL=http://localhost:3001/api/generate-recipes
+   ```
+
+3. **Restart your dev server** to pick up the environment change.
+
+This proxy will forward requests to your Railway webhook while handling CORS properly.
+
+**⚠️ Warning**: The CORS proxy is only for development testing. For production, configure CORS properly in your n8n/Railway app.
+
 ## What technologies are used for this project?
 
 This project is built with:

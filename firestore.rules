@@ -6,6 +6,11 @@ service cloud.firestore {
     // Users collection - users can only read/write their own data
     match /users/{userId} {
       allow read, write: if request.auth.uid == userId;
+      
+      // Allow users to read/write their own recipes subcollection
+      match /recipes/{recipeId} {
+        allow read, write: if request.auth.uid == userId;
+      }
     }
     
     // Products collection - public read, authenticated users can write

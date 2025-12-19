@@ -50,6 +50,26 @@ export interface RecipeAI {
   steps: string[];
 }
 
+export interface Ingredient {
+  name: string;
+  quantity: string;
+  unit: string;
+}
+
+export interface AIGeneratedRecipe {
+  id?: string;
+  name: string;
+  ingredients: (string | Ingredient)[];
+  instructions: string[];
+  cookingTime: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  servings: number;
+  isFavourite: boolean;
+  createdAt: Timestamp;
+  source: string;
+  favouritedAt?: Timestamp | null;
+}
+
 export interface SavedRecipe {
   id?: string;
   userId: string;
