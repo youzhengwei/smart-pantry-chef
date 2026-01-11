@@ -291,15 +291,22 @@ export async function scrapeStore(store, query, browser = null) {
  * @returns {Promise<Array<Object>>} Array of results
  */
 export async function scrapeAllStores(query, stores = STORES) {
+  // ===== START OF SCRAPER FUNCTION =====
+  console.log('[SCRAPER] 🔍 Starting scrapeAllStores for query:', query);
+  console.log('[SCRAPER] Stores to check:', stores.length);
+  console.log('[SCRAPER] Environment:', process.env.NODE_ENV || 'development');
+  
   if (!query || typeof query !== 'string' || query.trim().length === 0) {
+    console.error('[SCRAPER] ❌ Invalid query provided');
     throw new Error('Query must be a non-empty string');
   }
 
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`Starting multi-store scrape for query: "${query}"`);
-  console.log(`Found ${stores.length} stores to check`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`${'='.repeat(60)}`);
+  console.log('\n' + '='.repeat(60));
+  console.log('[SCRAPER] Multi-store scrape starting');
+  console.log('[SCRAPER] Query:', query);
+  console.log('[SCRAPER] Stores:', stores.map(s => s.storeName).join(', '));
+  console.log('[SCRAPER] Environment:', process.env.NODE_ENV || 'development');
+  console.log('='.repeat(60));
   
   // Create a single browser instance for all stores
   let browser = null;
@@ -399,20 +406,24 @@ export async function scrapeAllStores(query, stores = STORES) {
   const availableStores = results.filter(r => r.hasItem);
   const unavailableStores = results.filter(r => !r.hasItem);
 
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`✓ Scraping complete`);
-  console.log(`  Total stores: ${results.length}`);
-  console.log(`  ✓ Has item: ${availableStores.length} store${availableStores.length !== 1 ? 's' : ''}`);
-  console.log(`  ✗ No item: ${unavailableStores.length} store${unavailableStores.length !== 1 ? 's' : ''}`);
+  console.log('\n' + '='.repeat(60));
+  console.log('[SCRAPER] ✓ Scraping complete');
+  console.log('[SCRAPER] Total stores checked:', results.length);
+  console.log('[SCRAPER] Available:', availableStores.length);
+  console.log('[SCRAPER] Unavailable:', unavailableStores.length);
   
   if (availableStores.length > 0) {
-    console.log(`\n  Available at:`);
+    console.log('[SCRAPER] Available at:');
     availableStores.forEach(store => {
-      console.log(`    • ${store.storeName}`);
+      console.log('  •', store.storeName);
     });
   }
   
-  console.log(`${'='.repeat(60)}\n`);
+  console.log('='.repeat(60));
+  
+  // ===== END OF SCRAPER FUNCTION =====
+  console.log('[SCRAPER] 🏁 Finished scrapeAllStores, results count:', results.length);
+  console.log('[SCRAPER] Results:', JSON.stringify(results.map(r => ({ store: r.storeName, hasItem: r.hasItem, error: r.error })), null, 2));
   
   return results;
 }

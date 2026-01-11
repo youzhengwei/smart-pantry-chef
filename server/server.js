@@ -364,57 +364,65 @@ app.post('/search-products', async (req, res) => {
 
     // Validate request
     if (!query || typeof query !== 'string' || query.trim().length === 0) {
+      console.log('[/search-products] ❌ Missing or invalid query parameter');
       return res.status(400).json({ 
         error: 'Query parameter is required and must be a non-empty string',
         example: { query: "Milk 1 kg" }
       });
     }
 
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`[/search-products] Received query: "${query}"`);
-    console.log(`[/search-products] Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`[/search-products] Platform: ${process.platform}`);
-    console.log(`${'='.repeat(60)}\n`);
+    console.log('\n' + '='.repeat(60));
+    console.log('[/search-products] 🚀 Endpoint called');
+    console.log('[/search-products] Query:', query);
+    console.log('[/search-products] Environment:', process.env.NODE_ENV || 'development');
+    console.log('[/search-products] Platform:', process.platform);
+    console.log('[/search-products] Node version:', process.version);
+    console.log('='.repeat(60));
 
-    // Scrape all stores - this function handles Puppeteer errors internally
+    // Call scraper - NO production shortcuts, always runs the real scraper
+    console.log('[/search-products] Calling scrapeAllStores...');
     const results = await scrapeAllStores(query.trim());
-
-    console.log(`\n[/search-products] Returning ${results.length} results`);
+    console.log('[/search-products] ✓ scrapeAllStores returned:', results.length, 'results');
     
     // Log if any stores had errors
     const storesWithErrors = results.filter(r => r.error);
     if (storesWithErrors.length > 0) {
-      console.warn(`[/search-products] ${storesWithErrors.length} stores had errors:`);
+      console.warn('[/search-products] ⚠️  Stores with errors:', storesWithErrors.length);
       storesWithErrors.forEach(store => {
-        console.warn(`  - ${store.storeName}: ${store.error}`);
+        console.warn('  -', store.storeName, ':', store.error);
       });
     }
 
-    // Always return results array, even if some/all stores failed
-    res.json({
+    // Always return results array
+    const response = {
       query: query.trim(),
       results,
       summary: {
         total: results.length,
         available: results.filter(r => r.hasItem).length,
         unavailable: results.filter(r => !r.hasItem).length,
-        errors: results.filter(r => r.error).length
+        errors: storesWithErrors.length
       }
-    });
+    };
+    
+    console.log('[/search-products] Sending response with', response.results.length, 'results');
+    console.log('='.repeat(60) + '\n');
+    
+    return res.json(response);
 
   } catch (error) {
-    // This should only happen if there's a catastrophic error
+    // Catastrophic error - log everything
     console.error('\n' + '='.repeat(60));
-    console.error('[/search-products] CATASTROPHIC ERROR:');
-    console.error('Error name:', error.name);
+    console.error('[/search-products] ❌ CATASTROPHIC ERROR');
+    console.error('Error type:', error.constructor.name);
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
     console.error('='.repeat(60) + '\n');
     
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error while scraping stores',
-      message: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      message: String(error.message),
+      details: String(error)
     });
   }
 });
