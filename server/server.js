@@ -370,27 +370,51 @@ app.post('/search-products', async (req, res) => {
       });
     }
 
+    console.log(`\n${'='.repeat(60)}`);
     console.log(`[/search-products] Received query: "${query}"`);
+    console.log(`[/search-products] Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`[/search-products] Platform: ${process.platform}`);
+    console.log(`${'='.repeat(60)}\n`);
 
-    // Scrape all stores
+    // Scrape all stores - this function handles Puppeteer errors internally
     const results = await scrapeAllStores(query.trim());
 
-    // Return results
+    console.log(`\n[/search-products] Returning ${results.length} results`);
+    
+    // Log if any stores had errors
+    const storesWithErrors = results.filter(r => r.error);
+    if (storesWithErrors.length > 0) {
+      console.warn(`[/search-products] ${storesWithErrors.length} stores had errors:`);
+      storesWithErrors.forEach(store => {
+        console.warn(`  - ${store.storeName}: ${store.error}`);
+      });
+    }
+
+    // Always return results array, even if some/all stores failed
     res.json({
       query: query.trim(),
       results,
       summary: {
         total: results.length,
         available: results.filter(r => r.hasItem).length,
-        unavailable: results.filter(r => !r.hasItem).length
+        unavailable: results.filter(r => !r.hasItem).length,
+        errors: results.filter(r => r.error).length
       }
     });
 
   } catch (error) {
-    console.error('[/search-products] Error:', error);
+    // This should only happen if there's a catastrophic error
+    console.error('\n' + '='.repeat(60));
+    console.error('[/search-products] CATASTROPHIC ERROR:');
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('='.repeat(60) + '\n');
+    
     res.status(500).json({
       error: 'Internal server error while scraping stores',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });

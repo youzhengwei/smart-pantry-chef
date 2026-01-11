@@ -298,6 +298,7 @@ export async function scrapeAllStores(query, stores = STORES) {
   console.log(`\n${'='.repeat(60)}`);
   console.log(`Starting multi-store scrape for query: "${query}"`);
   console.log(`Found ${stores.length} stores to check`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`${'='.repeat(60)}`);
   
   // Create a single browser instance for all stores
@@ -305,24 +306,56 @@ export async function scrapeAllStores(query, stores = STORES) {
   const results = [];
 
   try {
-    browser = await puppeteer.launch({
+    // Puppeteer launch arguments for production (Render/Heroku etc)
+    const launchArgs = {
       headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-features=IsolateOrigins,site-per-process'
       ]
-    });
+    };
+
+    // On Render and other cloud platforms, use the installed Chromium
+    // Puppeteer v24+ automatically finds the correct executable
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      console.log('Running in PRODUCTION mode - using cloud-optimized Puppeteer settings');
+      launchArgs.executablePath = puppeteer.executablePath();
+    }
+
+    console.log('Attempting to launch Puppeteer browser...');
+    console.log('Launch args:', JSON.stringify(launchArgs, null, 2));
+
+    browser = await puppeteer.launch(launchArgs);
+    console.log('✓ Puppeteer browser launched successfully');
 
     // Scrape stores sequentially with delays to avoid being blocked
     for (let i = 0; i < stores.length; i++) {
       const store = stores[i];
       console.log(`\n[${i + 1}/${stores.length}] Processing ${store.storeName}...`);
       
-      const result = await scrapeStore(store, query, browser);
-      results.push(result);
+      try {
+        const result = await scrapeStore(store, query, browser);
+        results.push(result);
+      } catch (storeError) {
+        // If individual store fails, add error result instead of stopping
+        console.error(`[${store.storeName}] Store scraping failed:`, storeError.message);
+        results.push({
+          storeName: store.storeName,
+          storeCode: store.storeCode,
+          url: `${store.baseSearchUrl}`,
+          hasItem: false,
+          error: `Scraping error: ${storeError.message}`
+        });
+      }
       
       // Small delay between stores to be polite to servers
       if (i < stores.length - 1) {
@@ -332,14 +365,32 @@ export async function scrapeAllStores(query, stores = STORES) {
     }
 
   } catch (error) {
-    console.error('\n✗ Fatal error in scrapeAllStores:', error);
+    console.error('\n❌ FATAL ERROR in scrapeAllStores:');
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // If Puppeteer failed to launch, return error results for all stores
+    if (results.length === 0) {
+      console.error('⚠️  Puppeteer failed to launch - returning error results for all stores');
+      return stores.map(store => ({
+        storeName: store.storeName,
+        storeCode: store.storeCode,
+        url: `${store.baseSearchUrl}`,
+        hasItem: false,
+        error: `Puppeteer launch failed: ${error.message}`
+      }));
+    }
+    
+    // Re-throw if it's a different error
     throw error;
   } finally {
     if (browser) {
       try {
         await browser.close();
+        console.log('Browser closed successfully');
       } catch (e) {
-        console.error('Error closing browser:', e);
+        console.error('Error closing browser:', e.message);
       }
     }
   }
