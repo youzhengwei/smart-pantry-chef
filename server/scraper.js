@@ -75,13 +75,17 @@ export async function scrapeStore(store, query, browser = null) {
     // Create browser if not provided
     if (!browser) {
       browser = await puppeteer.launch({
-        headless: true,
+        headless: 'new',
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-software-rasterizer'
         ]
       });
     }
@@ -313,9 +317,13 @@ export async function scrapeAllStores(query, stores = STORES) {
   const results = [];
 
   try {
-    // Puppeteer launch arguments for production (Render/Heroku etc)
+    // Puppeteer launch arguments optimized for cloud platforms (Render, Heroku, etc.)
+    console.log('[SCRAPER] Configuring Puppeteer launch arguments...');
+    console.log('[SCRAPER] Platform:', process.platform);
+    console.log('[SCRAPER] NODE_ENV:', process.env.NODE_ENV || 'development');
+    
     const launchArgs = {
-      headless: true,
+      headless: 'new', // Use new headless mode
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -326,23 +334,23 @@ export async function scrapeAllStores(query, stores = STORES) {
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
-        '--disable-features=IsolateOrigins,site-per-process'
-      ]
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-blink-features=AutomationControlled',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process', // Important for Render
+        '--disable-software-rasterizer'
+      ],
+      // Let Puppeteer find Chrome automatically - don't force executablePath
+      // as it can cause issues on different cloud platforms
     };
 
-    // On Render and other cloud platforms, use the installed Chromium
-    // Puppeteer v24+ automatically finds the correct executable
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
-      console.log('Running in PRODUCTION mode - using cloud-optimized Puppeteer settings');
-      launchArgs.executablePath = puppeteer.executablePath();
-    }
-
-    console.log('Attempting to launch Puppeteer browser...');
-    console.log('Launch args:', JSON.stringify(launchArgs, null, 2));
+    console.log('[SCRAPER] Attempting to launch Puppeteer browser...');
+    console.log('[SCRAPER] Launch args:', JSON.stringify(launchArgs.args, null, 2));
 
     browser = await puppeteer.launch(launchArgs);
-    console.log('✓ Puppeteer browser launched successfully');
+    console.log('[SCRAPER] ✓ Puppeteer browser launched successfully');
+    console.log('[SCRAPER] Browser version:', await browser.version());
 
     // Scrape stores sequentially with delays to avoid being blocked
     for (let i = 0; i < stores.length; i++) {
