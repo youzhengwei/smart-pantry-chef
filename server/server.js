@@ -362,15 +362,17 @@ app.post('/search-products', async (req, res) => {
   console.log('[search-products] Endpoint called');
   console.log('[search-products] Body:', req.body);
   console.log('[search-products] Environment:', process.env.NODE_ENV);
+
   try {
     const { query } = req.body;
-    if (!query) {
+    if (!query || typeof query !== 'string' || !query.trim()) {
       return res.status(400).json({ error: 'Missing query' });
     }
 
     console.log('[search-products] Calling scrapeAllStores...');
-    const results = await scrapeAllStores(query);
+    const results = await scrapeAllStores(query.trim());
     console.log('[search-products] scrapeAllStores returned', results.length, 'results');
+
     return res.json({ results });
   } catch (err) {
     console.error('[search-products] Error:', err);
