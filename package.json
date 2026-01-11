@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "deploy:indexes": "firebase deploy --only firestore:indexes",
     "deploy:rules": "firebase deploy --only firestore:rules",
-    "cors-proxy": "node cors-proxy.js"
+    "cors-proxy": "node cors-proxy.js",
+    "start": "node server/server.js",
+    "server": "node server/server.js",
+    "test-scraper": "node server/test-scraper.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -56,6 +59,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
+    "puppeteer": "^24.34.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",

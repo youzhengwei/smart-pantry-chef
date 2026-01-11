@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { scrapeAllStores, STORES } from './scraper.js';
 
 dotenv.config();
 
@@ -22,14 +23,20 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Initialize OpenAI (optional - only needed for recipe generation)
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+  });
+  console.log('OpenAI initialized for recipe generation');
+} else {
+  console.warn('OPENAI_API_KEY not found - recipe generation will not be available');
+}
 
 // Express app setup
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
@@ -185,6 +192,14 @@ const saveRecipes = async (uid, recipes) => {
 // POST /api/generate-recipes
 app.post('/api/generate-recipes', async (req, res) => {
   try {
+    // Check if OpenAI is available
+    if (!openai) {
+      return res.status(503).json({ 
+        error: 'Recipe generation service unavailable',
+        details: 'OPENAI_API_KEY not configured'
+      });
+    }
+
     const { uid, strictOnly = true, preferenceText = '' } = req.body;
 
     if (!uid) {
@@ -340,6 +355,55 @@ app.get('/api/favourites', async (req, res) => {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// POST /search-products - Scrape multiple supermarkets to check product availability
+app.post('/search-products', async (req, res) => {
+  try {
+    const { query } = req.body;
+
+    // Validate request
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+      return res.status(400).json({ 
+        error: 'Query parameter is required and must be a non-empty string',
+        example: { query: "Milk 1 kg" }
+      });
+    }
+
+    console.log(`[/search-products] Received query: "${query}"`);
+
+    // Scrape all stores
+    const results = await scrapeAllStores(query.trim());
+
+    // Return results
+    res.json({
+      query: query.trim(),
+      results,
+      summary: {
+        total: results.length,
+        available: results.filter(r => r.hasItem).length,
+        unavailable: results.filter(r => !r.hasItem).length
+      }
+    });
+
+  } catch (error) {
+    console.error('[/search-products] Error:', error);
+    res.status(500).json({
+      error: 'Internal server error while scraping stores',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// GET /stores - Get list of configured stores
+app.get('/stores', (req, res) => {
+  res.json({
+    stores: STORES.map(store => ({
+      storeName: store.storeName,
+      storeCode: store.storeCode,
+      baseSearchUrl: store.baseSearchUrl
+    }))
+  });
 });
 
 // Error handling middleware
