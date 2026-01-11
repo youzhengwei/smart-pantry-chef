@@ -1,5 +1,20 @@
 import puppeteer from 'puppeteer';
 
+// Central Puppeteer options for cloud environments like Railway
+const PUPPETEER_LAUNCH_OPTIONS = {
+  headless: true,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--disable-gpu',
+    '--no-first-run',
+    '--no-zygote',
+    '--single-process'
+  ]
+};
+
 // Store configurations for Singapore supermarkets
 export const STORES = [
   {
@@ -74,20 +89,7 @@ export async function scrapeStore(store, query, browser = null) {
   try {
     // Create browser if not provided
     if (!browser) {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-          '--no-first-run',
-          '--no-zygote',
-          '--single-process',
-          '--disable-software-rasterizer'
-        ]
-      });
+      browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
     }
 
     // Build search URL - handle path-based queries for Sheng Siong
@@ -322,33 +324,10 @@ export async function scrapeAllStores(query, stores = STORES) {
     console.log('[SCRAPER] Platform:', process.platform);
     console.log('[SCRAPER] NODE_ENV:', process.env.NODE_ENV || 'development');
     
-    const launchArgs = {
-      headless: true, // Use stable headless mode
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--disable-extensions',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding',
-        '--disable-features=IsolateOrigins,site-per-process',
-        '--disable-blink-features=AutomationControlled',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process', // Important for Render
-        '--disable-software-rasterizer'
-      ],
-      // Let Puppeteer find Chrome automatically - don't force executablePath
-      // as it can cause issues on different cloud platforms
-    };
-
     console.log('[SCRAPER] Attempting to launch Puppeteer browser...');
-    console.log('[SCRAPER] Launch args:', JSON.stringify(launchArgs.args, null, 2));
+    console.log('[SCRAPER] Launch args:', JSON.stringify(PUPPETEER_LAUNCH_OPTIONS.args, null, 2));
 
-    browser = await puppeteer.launch(launchArgs);
+    browser = await puppeteer.launch(PUPPETEER_LAUNCH_OPTIONS);
     console.log('[SCRAPER] ✓ Puppeteer browser launched successfully');
     console.log('[SCRAPER] Browser version:', await browser.version());
 

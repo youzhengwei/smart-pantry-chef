@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server/server.js",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
@@ -13,7 +13,6 @@
     "deploy:rules": "firebase deploy --only firestore:rules",
     "cors-proxy": "node cors-proxy.js",
     "start": "node server/server.js",
-    "server": "node server/server.js",
     "test-scraper": "node server/test-scraper.js",
     "postinstall": "node -e \"try { require('puppeteer').executablePath(); console.log('Puppeteer Chrome found'); } catch(e) { console.log('Installing Chrome for Puppeteer...'); require('child_process').execSync('npx puppeteer browsers install chrome', {stdio: 'inherit'}); }\""
   },
