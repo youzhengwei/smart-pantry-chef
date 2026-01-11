@@ -65,10 +65,10 @@ const Favourites: React.FC = () => {
         <div>
           <h1 className="font-display text-3xl font-bold text-foreground flex items-center gap-3">
             <Heart className="h-8 w-8 text-red-500" />
-            Favourite Recipes
+            Favorite Recipes
           </h1>
           <p className="text-muted-foreground">
-            Your saved AI-generated recipes
+            Your favorite AI-generated recipes
           </p>
         </div>
         <Button
@@ -88,9 +88,9 @@ const Favourites: React.FC = () => {
             <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-red-50 text-red-500">
               <Heart className="h-10 w-10" />
             </div>
-            <h3 className="mb-2 font-display text-xl font-semibold">No favourite recipes yet</h3>
+            <h3 className="mb-2 font-display text-xl font-semibold">No favorite recipes yet</h3>
             <p className="text-center text-muted-foreground mb-4">
-              Generate some AI recipes and mark them as favourites to see them here.
+              Generate some AI recipes and mark them as favorites to see them here.
             </p>
             <Button
               onClick={() => window.location.href = '/recipes'}
