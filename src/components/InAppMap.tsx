@@ -9,8 +9,10 @@ import { Car, Footprints, Bike, Clock, Route, Navigation, MapPin, Heart } from '
 interface InAppMapProps {
   isOpen: boolean;
   onClose: () => void;
-  store: NearbyStore | null;
-  userLocation: { lat: number; lng: number } | null;
+  destination?: { lat: number; lng: number; name?: string; address?: string; rating?: number; isOpen?: boolean };
+  origin?: { lat: number; lng: number };
+  store?: NearbyStore | null;
+  userLocation?: { lat: number; lng: number } | null;
 }
 
 interface RouteInfo {
@@ -26,15 +28,26 @@ declare global {
   }
 }
 
-const InAppMap: React.FC<InAppMapProps> = ({ isOpen, onClose, store, userLocation }) => {
+const InAppMap: React.FC<InAppMapProps> = ({ isOpen, onClose, store, userLocation, destination, origin }) => {
+  // Handle both old (store/userLocation) and new (destination/origin) prop styles
+  const actualStore = store || (destination ? {
+    displayName: { text: destination.name || 'Destination' },
+    formattedAddress: destination.address || '',
+    location: { latitude: destination.lat, longitude: destination.lng },
+    rating: destination.rating,
+    currentOpeningHours: { openNow: destination.isOpen }
+  } as NearbyStore : null);
+  
+  const actualUserLocation = userLocation || origin;
   const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
   const directionsRendererRef = useRef<any>(null);
   const [selectedMode, setSelectedMode] = useState<'driving' | 'walking' | 'bicycling' | 'transit'>('driving');
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const [isLoadingDirections, setIsLoadingDirections] = useState(false);
 
   useEffect(() => {
-    if (isOpen && store && !window.google) {
+    if (isOpen && actualStore && !window.google) {
       // Load Google Maps API with Directions service
       const script = document.createElement('script');
       script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_PLACES_API_KEY}&libraries=places,geometry`;
@@ -45,75 +58,102 @@ const InAppMap: React.FC<InAppMapProps> = ({ isOpen, onClose, store, userLocatio
       script.onload = () => {
         initializeMap();
       };
-    } else if (isOpen && store && window.google) {
+    } else if (isOpen && actualStore && window.google && !mapInstanceRef.current) {
       initializeMap();
     }
-  }, [isOpen, store]);
+  }, [isOpen, actualStore]);
+
+  // Handle travel mode changes
+  useEffect(() => {
+    if (isOpen && actualUserLocation && actualStore && mapInstanceRef.current) {
+      calculateRoute(selectedMode);
+    }
+  }, [selectedMode, isOpen]);
 
   const initializeMap = () => {
-    if (!mapRef.current || !store) return;
+    if (!mapRef.current || !actualStore) return;
+
+    console.log('Initializing map with store:', actualStore.displayName.text);
 
     const mapOptions = {
       center: {
-        lat: store.location.latitude,
-        lng: store.location.longitude,
+        lat: actualStore.location.latitude,
+        lng: actualStore.location.longitude,
       },
       zoom: 15,
     };
 
-    const map = new window.google.maps.Map(mapRef.current, mapOptions);
+    try {
+      const map = new window.google.maps.Map(mapRef.current, mapOptions);
+      mapInstanceRef.current = map; // Store map instance
+      console.log('Map initialized successfully');
 
-    // Add store marker
-    const marker = new window.google.maps.Marker({
-      position: {
-        lat: store.location.latitude,
-        lng: store.location.longitude,
-      },
-      map: map,
-      title: store.displayName.text,
-    });
+      // Add store marker
+      const marker = new window.google.maps.Marker({
+        position: {
+          lat: actualStore.location.latitude,
+          lng: actualStore.location.longitude,
+        },
+        map: map,
+        title: actualStore.displayName.text,
+      });
 
-    // Add info window
-    const infoWindow = new window.google.maps.InfoWindow({
-      content: `
-        <div>
-          <h3>${store.displayName.text}</h3>
-          <p>${store.formattedAddress}</p>
-          ${store.rating ? `<p>Rating: ⭐ ${store.rating}</p>` : ''}
-        </div>
-      `,
-    });
+      // Add info window
+      const infoWindow = new window.google.maps.InfoWindow({
+        content: `
+          <div>
+            <h3>${actualStore.displayName.text}</h3>
+            <p>${actualStore.formattedAddress}</p>
+            ${actualStore.rating ? `<p>Rating: ⭐ ${actualStore.rating}</p>` : ''}
+          </div>
+        `,
+      });
 
-    marker.addListener('click', () => {
-      infoWindow.open(map, marker);
-    });
+      marker.addListener('click', () => {
+        infoWindow.open(map, marker);
+      });
 
-    // Initialize directions renderer
-    directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
-      map: map,
-      suppressMarkers: true, // We'll keep our custom marker
-      polylineOptions: {
-        strokeColor: '#4285F4',
-        strokeWeight: 5,
-      },
-    });
+      // Initialize directions renderer only once
+      if (!directionsRendererRef.current) {
+        directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
+          map: map,
+          suppressMarkers: false,
+          polylineOptions: {
+            strokeColor: '#E07547',
+            strokeWeight: 5,
+          },
+        });
+      }
 
-    // If user location exists, calculate initial route
-    if (userLocation) {
-      calculateRoute(selectedMode);
+      // If user location exists, calculate initial route
+      if (actualUserLocation) {
+        console.log('Calculating initial route...');
+        calculateRoute(selectedMode);
+      }
+    } catch (error) {
+      console.error('Error initializing map:', error);
     }
   };
 
   const calculateRoute = (travelMode: 'driving' | 'walking' | 'bicycling' | 'transit') => {
-    if (!userLocation || !store || !directionsRendererRef.current) return;
+    if (!actualUserLocation || !actualStore) {
+      console.log('Missing location or store for route calculation');
+      return;
+    }
+
+    if (!directionsRendererRef.current || !mapInstanceRef.current) {
+      console.log('Directions renderer or map not initialized');
+      return;
+    }
 
     setIsLoadingDirections(true);
+    console.log('Calculating route with mode:', travelMode);
 
     const directionsService = new window.google.maps.DirectionsService();
 
     const request = {
-      origin: new window.google.maps.LatLng(userLocation.lat, userLocation.lng),
-      destination: new window.google.maps.LatLng(store.location.latitude, store.location.longitude),
+      origin: new window.google.maps.LatLng(actualUserLocation.lat, actualUserLocation.lng),
+      destination: new window.google.maps.LatLng(actualStore.location.latitude, actualStore.location.longitude),
       travelMode: window.google.maps.TravelMode[travelMode.toUpperCase()],
       provideRouteAlternatives: false,
     };
@@ -121,7 +161,8 @@ const InAppMap: React.FC<InAppMapProps> = ({ isOpen, onClose, store, userLocatio
     directionsService.route(request, (result: any, status: any) => {
       setIsLoadingDirections(false);
 
-      if (status === window.google.maps.DirectionsStatus.OK && result.routes[0]) {
+      if (status === window.google.maps.DirectionsStatus.OK && result?.routes?.[0]) {
+        console.log('Route calculated successfully:', result);
         directionsRendererRef.current.setDirections(result);
         
         const route = result.routes[0];
@@ -167,22 +208,22 @@ const InAppMap: React.FC<InAppMapProps> = ({ isOpen, onClose, store, userLocatio
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+        <DialogHeader className="px-6 pt-4 pb-2 border-b">
           <DialogTitle className="flex items-center gap-2">
             <Navigation className="h-5 w-5" />
-            Directions to {store?.displayName.text}
+          Directions to {actualStore?.displayName.text}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 flex gap-4">
+        <div className="flex-1 flex gap-4 overflow-hidden p-6">
           {/* Map Section */}
-          <div className="flex-1">
-            <div ref={mapRef} className="w-full h-full rounded-lg min-h-[400px]" />
+          <div className="flex-1 rounded-lg overflow-hidden bg-gray-100 relative">
+            <div ref={mapRef} className="w-full h-full absolute inset-0" />
           </div>
 
           {/* Directions Panel */}
-          <div className="w-80 space-y-4">
+          <div className="w-80 space-y-4 overflow-y-auto max-h-full">
             {/* Travel Mode Selection */}
             <Card>
               <CardContent className="p-4">
@@ -194,7 +235,7 @@ const InAppMap: React.FC<InAppMapProps> = ({ isOpen, onClose, store, userLocatio
                       variant={selectedMode === mode ? 'default' : 'outline'}
                       size="sm"
                       onClick={() => handleModeChange(mode)}
-                      className="flex items-center gap-2"
+                      className={`flex items-center gap-2 ${selectedMode === mode ? 'bg-primary hover:bg-primary/90' : ''}`}
                       disabled={isLoadingDirections}
                     >
                       {getModeIcon(mode)}
@@ -258,7 +299,7 @@ const InAppMap: React.FC<InAppMapProps> = ({ isOpen, onClose, store, userLocatio
               </Card>
             )}
 
-            {!userLocation && (
+            {!actualUserLocation && (
               <Card>
                 <CardContent className="p-4">
                   <p className="text-sm text-muted-foreground">

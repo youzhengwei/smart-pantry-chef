@@ -26,6 +26,7 @@ interface ProductSearchResult {
 }
 import StoreCard from '@/components/StoreCard';
 import Filters from '@/components/Filters';
+import InAppMap from '@/components/InAppMap';
 
 const StoreLocator: React.FC = () => {
   const location = useLocation();
@@ -662,24 +663,24 @@ const StoreLocator: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Find Nearby Stores Button */}
-      <Card className="magnet-card">
-        <CardContent className="pt-6">
-          <div className="text-center">
-            <Button onClick={handleFindNearbyStores} disabled={nearbyLoading} size="lg" className="w-full sm:w-auto">
-              {nearbyLoading ? (
-                <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              ) : (
-                <MapPin className="h-5 w-5 mr-2" />
-              )}
-              Find Stores Near Me
-            </Button>
-            {nearbyError && (
-              <p className="text-sm text-destructive mt-2">{nearbyError}</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Find Nearby Stores Button - Outside container with orange color */}
+      <div className="flex items-center gap-4">
+        <Button 
+          onClick={handleFindNearbyStores} 
+          disabled={nearbyLoading} 
+          className="bg-primary hover:bg-primary/90"
+        >
+          {nearbyLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <MapPin className="h-4 w-4 mr-2" />
+          )}
+          Find Stores Near Me
+        </Button>
+        {nearbyError && (
+          <p className="text-sm text-destructive">{nearbyError}</p>
+        )}
+      </div>
 
       {/* Product Search Results */}
       {initialSearch && (
@@ -925,86 +926,22 @@ const StoreLocator: React.FC = () => {
         </div>
       </div>
 
-      {/* Empty State */}
-      {results.length === 0 && !searching && (
-        <Card className="magnet-card">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
-              <ShoppingCart className="h-10 w-10 text-muted-foreground" />
-            </div>
-            <h3 className="mb-2 font-display text-xl font-semibold">Find stores in Singapore</h3>
-            <p className="text-center text-muted-foreground">
-              Select a store type (All = Supermarkets + Convenience stores) and enter an area in Singapore to find more stores nearby.
-            </p>
-          </CardContent>
-        </Card>
+      {/* In-App Map Modal with Detailed Directions */}
+      {selectedMapStore && (
+        <InAppMap
+          isOpen={showMapModal}
+          onClose={() => setShowMapModal(false)}
+          destination={{
+            lat: selectedMapStore.location.latitude,
+            lng: selectedMapStore.location.longitude,
+            name: selectedMapStore.displayName.text,
+            address: selectedMapStore.formattedAddress,
+            rating: selectedMapStore.rating,
+            isOpen: selectedMapStore.currentOpeningHours?.openNow
+          }}
+          origin={userLocation ?? undefined}
+        />
       )}
-
-      {/* Map Modal */}
-      <Dialog open={showMapModal} onOpenChange={setShowMapModal}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              {selectedMapStore?.displayName.text}
-            </DialogTitle>
-          </DialogHeader>
-
-          {selectedMapStore && (
-            <div className="space-y-4">
-              {/* Store Info */}
-              <div className="rounded-lg border p-4 bg-muted/50">
-                <p className="text-sm text-foreground mb-2">
-                  <strong>Address:</strong> {selectedMapStore.formattedAddress}
-                </p>
-                {selectedMapStore.rating && (
-                  <p className="text-sm text-foreground mb-2">
-                    <strong>Rating:</strong> ⭐ {selectedMapStore.rating}
-                  </p>
-                )}
-                {selectedMapStore.currentOpeningHours?.openNow !== undefined && (
-                  <p className="text-sm text-foreground">
-                    <strong>Status:</strong>{' '}
-                    <Badge variant={selectedMapStore.currentOpeningHours.openNow ? 'default' : 'secondary'} className="ml-1">
-                      {selectedMapStore.currentOpeningHours.openNow ? 'Open now' : 'Closed'}
-                    </Badge>
-                  </p>
-                )}
-              </div>
-
-              {/* Embedded Map */}
-              <div className="rounded-lg overflow-hidden border">
-                <iframe
-                  title={selectedMapStore.displayName.text}
-                  width="100%"
-                  height="500"
-                  frameBorder={0}
-                  src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_PLACES_API_KEY}&q=${encodeURIComponent(selectedMapStore.displayName.text)}+${encodeURIComponent(selectedMapStore.formattedAddress)}`}
-                  allowFullScreen
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                />
-              </div>
-
-              {/* Directions Link */}
-              <div className="flex gap-2">
-                <Button
-                  className="flex-1"
-                  onClick={() => {
-                    const origin = userLocation ? `${userLocation.lat},${userLocation.lng}` : '';
-                    const destination = `${selectedMapStore.location.latitude},${selectedMapStore.location.longitude}`;
-                    const url = `https://www.google.com/maps/dir/${origin}/${destination}`;
-                    window.open(url, '_blank');
-                  }}
-                >
-                  <Navigation className="mr-2 h-4 w-4" />
-                  Get Directions (Opens Google Maps)
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

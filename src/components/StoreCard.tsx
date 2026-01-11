@@ -55,7 +55,7 @@ const StoreCard: React.FC<StoreCardProps> = ({ store, userLocation, onNavigate }
             </div>
           </div>
           <Button
-            variant="outline"
+            className="bg-primary hover:bg-primary/90"
             size="sm"
             onClick={() => onNavigate(store)}
           >
