@@ -142,6 +142,53 @@
   }
 }
 
+/* Remove all hover effects globally */
+* {
+  transition: none !important;
+}
+
+/* Disable all button hover effects */
+button,
+button:hover,
+button:focus,
+button:active {
+  transition: none !important;
+}
+
+/* Disable all link hover effects */
+a,
+a:hover,
+a:focus,
+a:active {
+  transition: none !important;
+}
+
+/* Remove all hover classes */
+.hover\:bg-accent:hover,
+.hover\:text-accent-foreground:hover,
+.hover\:bg-primary\/90:hover,
+.hover\:underline:hover,
+.hover\:bg-secondary\/80:hover,
+.hover\:shadow-lg:hover,
+.hover\:shadow-md:hover,
+.hover\:scale-105:hover,
+.hover\:scale-110:hover,
+.hover\:-translate-y-1:hover,
+.group:hover {
+  transition: none !important;
+}
+
+/* Remove hover effects from all containers and cards */
+.magnet-card,
+.magnet-card:hover,
+[class*="card"],
+[class*="card"]:hover,
+[class*="Container"],
+[class*="Container"]:hover {
+  transition: none !important;
+  transform: none !important;
+}
+
 @layer components {
   /* Kitchen tile pattern background */
   .kitchen-bg {
@@ -158,19 +205,22 @@
 
   /* Fridge magnet card style */
   .magnet-card {
-    @apply rounded-2xl shadow-lg transition-all duration-300;
+    @apply rounded-2xl shadow-lg;
     background: hsl(var(--card));
     box-shadow: 
       0 4px 6px -1px rgba(0, 0, 0, 0.1),
       0 2px 4px -1px rgba(0, 0, 0, 0.06),
       inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    transition: none !important;
   }
 
   .magnet-card:hover {
-    transform: translateY(-2px) rotate(0.5deg);
+    transform: none !important;
     box-shadow: 
-      0 10px 15px -3px rgba(0, 0, 0, 0.1),
-      0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      0 4px 6px -1px rgba(0, 0, 0, 0.1),
+      0 2px 4px -1px rgba(0, 0, 0, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+    transition: none !important;
   }
 
   /* Pantry label style */

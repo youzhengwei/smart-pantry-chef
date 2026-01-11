@@ -261,7 +261,7 @@ const Dashboard: React.FC = () => {
                     <Button 
                       size="sm" 
                       variant="outline"
-                      onClick={() => navigate('/store-locator', { state: { searchItem: item.name } })}
+                      onClick={() => navigate('/store-locator', { state: { searchItem: `${item.name} ${item.quantity} ${item.quantityUnit}` } })}
                     >
                       Find
                     </Button>

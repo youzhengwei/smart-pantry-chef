@@ -1,62 +1,140 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { getStores } from '@/services/firebaseService';
-import { Store, NearbyStore } from '@/types';
+import { NearbyStore } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Timestamp } from 'firebase/firestore';
 import { 
   MapPin, 
   Search, 
-  Loader2, 
-  Store as StoreIcon,
-  Check,
-  X,
+  Loader2,
   ShoppingCart,
-  Sparkles,
-  Navigation
+  Navigation,
 } from 'lucide-react';
+
+interface ProductSearchResult {
+  supermarket: string;
+  title: string;
+  price: string;
+  measurement: string;
+  link: string;
+}
+import StoreCard from '@/components/StoreCard';
+import Filters from '@/components/Filters';
+import InAppMap from '@/components/InAppMap';
 
 const StoreLocator: React.FC = () => {
   const location = useLocation();
   const { toast } = useToast();
-  const [stores, setStores] = useState<Store[]>([]);
   const [results, setResults] = useState<NearbyStore[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [selectedArea, setSelectedArea] = useState('');
   const [nearbyStores, setNearbyStores] = useState<NearbyStore[]>([]);
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyError, setNearbyError] = useState<string | null>(null);
-  const [showOpenOnly, setShowOpenOnly] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedStoreType, setSelectedStoreType] = useState('all');
+  const [distanceFilter, setDistanceFilter] = useState('all');
+  const [ratingFilter, setRatingFilter] = useState('all');
   const [selectedMapStore, setSelectedMapStore] = useState<NearbyStore | null>(null);
   const [showMapModal, setShowMapModal] = useState(false);
+
+  // Product search state
+  const [productResults, setProductResults] = useState<ProductSearchResult[]>([]);
+  const [chainsWithItem, setChainsWithItem] = useState<string[]>([]);
+  const [nearestByChain, setNearestByChain] = useState<Record<string, NearbyStore | null>>({});
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
 
   // Get initial search from navigation state
   const initialSearch = (location.state as { searchItem?: string })?.searchItem || '';
 
-  useEffect(() => {
-    loadStores();
-  }, []);
-
-  const loadStores = async () => {
-    try {
-      const storesData = await getStores();
-      setStores(storesData);
-    } catch (error) {
-      console.error('Error loading stores:', error);
-    } finally {
-      setLoading(false);
-    }
+  // Helper function for distance calculation
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
   };
+
+  useEffect(() => {
+    if (initialSearch && !productSearchLoading && productResults.length === 0) {
+      searchProducts(initialSearch);
+    }
+  }, [initialSearch]);
+
+  const filteredNearbyStores = useMemo(() => {
+    return nearbyStores.filter(store => {
+      // Block specific non-store results
+      if (store.displayName.text === 'Yen Investments Pte. Ltd.' || 
+          store.formattedAddress.includes('304 Woodlands Street 31, Singapore 730304')) {
+        return false;
+      }
+
+      // Distance filter - only apply if userLocation exists
+      if (distanceFilter !== 'all' && userLocation) {
+        const distance = calculateDistance(userLocation.lat, userLocation.lng, store.location.latitude, store.location.longitude);
+        if (distance > parseInt(distanceFilter)) return false;
+      }
+      // If no user location, distance filter is ignored (show all results)
+
+      // Rating filter
+      if (ratingFilter !== 'all') {
+        if (!store.rating) return false;
+        
+        if (ratingFilter === '4.0') {
+          if (store.rating < 4.0) return false;
+        } else if (ratingFilter === '3.0') {
+          if (store.rating < 3.0 || store.rating >= 4.0) return false;
+        } else if (ratingFilter === 'below3') {
+          if (store.rating >= 3.0) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [nearbyStores, distanceFilter, ratingFilter, userLocation]);
+
+  const filteredResults = useMemo(() => {
+    return results.filter(store => {
+      // Block specific non-store results
+      if (store.displayName.text === 'Yen Investments Pte. Ltd.' ||
+          store.formattedAddress.includes('304 Woodlands Street 31, Singapore 730304')) {
+        return false;
+      }
+
+      // Distance filter - only apply if userLocation exists
+      if (distanceFilter !== 'all' && userLocation) {
+        const distance = calculateDistance(userLocation.lat, userLocation.lng, store.location.latitude, store.location.longitude);
+        if (distance > parseInt(distanceFilter)) return false;
+      }
+      // If no user location, distance filter is ignored (show all results)
+
+      // Rating filter
+      if (ratingFilter !== 'all') {
+        if (!store.rating) return false;
+
+        if (ratingFilter === '4.0') {
+          if (store.rating < 4.0) return false;
+        } else if (ratingFilter === '3.0') {
+          if (store.rating < 3.0 || store.rating >= 4.0) return false;
+        } else if (ratingFilter === 'below3') {
+          if (store.rating >= 3.0) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [results, distanceFilter, ratingFilter, userLocation]);
 
   const handleSearch = async () => {
     if (!selectedArea.trim()) {
@@ -392,17 +470,6 @@ const StoreLocator: React.FC = () => {
     }
   };
 
-  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-    const R = 6371; // Earth's radius in kilometers
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  };
-
   const getEstimatedTravelTime = (distanceKm: number) => {
     // Average walking speed: 5 km/h, driving speed: 30 km/h
     const walkingMinutes = Math.round((distanceKm / 5) * 60);
@@ -420,30 +487,128 @@ const StoreLocator: React.FC = () => {
     setShowMapModal(true);
   };
 
-  const getMapEmbedUrl = (store: NearbyStore): string => {
-    // Using Google Maps Embed API URL
-    const lat = store.location.latitude;
-    const lng = store.location.longitude;
-    const query = encodeURIComponent(store.displayName.text);
-    const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
-    
-    // Using Maps Embed API
-    return `https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${encodeURIComponent(store.displayName.text)}+${encodeURIComponent(store.formattedAddress)}`;
+  // Chain display names mapping
+  const CHAIN_DISPLAY_NAME: Record<string, string> = {
+    ntuc: 'NTUC FairPrice',
+    'cold-storage': 'Cold Storage',
+    'sheng-siong': 'Sheng Siong',
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  // Search for products using the backend
+  const searchProducts = async (query: string) => {
+    setProductSearchLoading(true);
+    try {
+      // Use environment variable or fallback to local development server
+      const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:3000/search-products';
+
+      const response = await fetch(n8nWebhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Product search failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const results: ProductSearchResult[] = data.results || [];
+
+      setProductResults(results);
+
+      // Extract unique chains that have this item
+      const chains = Array.from(new Set(results.map((r: ProductSearchResult) => r.supermarket)));
+      setChainsWithItem(chains);
+
+      // If we have user location and chains, find nearest stores for each chain
+      if (userLocation && chains.length > 0) {
+        await findNearestStoresForChains(chains, userLocation);
+      }
+
+      if (results.length === 0) {
+        toast({
+          title: 'No products found',
+          description: `No products found for "${query}". Try a different search term.`,
+        });
+      }
+    } catch (error) {
+      console.error('Product search error:', error);
+      toast({
+        title: 'Search failed',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setProductSearchLoading(false);
+    }
+  };
+
+  // Find nearest stores for chains using Google Places
+  const findNearestStoresForChains = async (chains: string[], userLatLng: { lat: number; lng: number }) => {
+    const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      console.error('Google Places API key not configured');
+      return;
+    }
+
+    const newNearestByChain: Record<string, NearbyStore | null> = {};
+
+    for (const chainId of chains) {
+      try {
+        const displayName = CHAIN_DISPLAY_NAME[chainId];
+        if (!displayName) continue;
+
+        const url = 'https://places.googleapis.com/v1/places:searchText';
+        const requestBody = {
+          textQuery: `${displayName} supermarket`,
+          includedType: "supermarket",
+          maxResultCount: 5,
+          locationRestriction: {
+            circle: {
+              center: {
+                latitude: userLatLng.lat,
+                longitude: userLatLng.lng
+              },
+              radius: 10000.0 // 10km radius
+            }
+          }
+        };
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          const places = result.places || [];
+          // Find the closest one
+          if (places.length > 0) {
+            newNearestByChain[chainId] = places[0];
+          }
+        }
+      } catch (error) {
+        console.error(`Error finding nearest ${chainId} store:`, error);
+      }
+    }
+
+    setNearestByChain(newNearestByChain);
+  };
+
+
 
   return (
     <div className="animate-fade-in space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="font-display text-3xl font-bold text-foreground">Store Locator</h1>
+      <div className="text-center py-6">
+        <h1 className="font-display text-3xl font-bold text-foreground mb-2">Store Locator</h1>
         <p className="text-muted-foreground">Find stores in Singapore</p>
       </div>
 
@@ -475,9 +640,9 @@ const StoreLocator: React.FC = () => {
                   <SelectValue placeholder="Select store type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All (Supermarkets & Convenience)</SelectItem>
-                  <SelectItem value="supermarket">Supermarket/Market</SelectItem>
-                  <SelectItem value="convenience_store">Convenience Store</SelectItem>
+                  <SelectItem value="all">All Stores</SelectItem>
+                  <SelectItem value="supermarket">Supermarkets</SelectItem>
+                  <SelectItem value="convenience_store">Convenience Stores</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -489,7 +654,7 @@ const StoreLocator: React.FC = () => {
                 ) : (
                   <>
                     <Search className="mr-2 h-4 w-4" />
-                    Find Stores
+                    Search
                   </>
                 )}
               </Button>
@@ -498,172 +663,284 @@ const StoreLocator: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Nearby Stores Card */}
-      <Card className="magnet-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 font-display">
-            <MapPin className="h-5 w-5" />
-            Nearby Stores
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Button onClick={handleFindNearbyStores} disabled={nearbyLoading}>
-            {nearbyLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <MapPin className="mr-2 h-4 w-4" />
-            )}
-            Use my location
-          </Button>
-          {nearbyError && <p className="text-destructive">{nearbyError}</p>}
-          {nearbyStores.length > 0 && (
-            <>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="openOnly"
-                  checked={showOpenOnly}
-                  onChange={(e) => setShowOpenOnly(e.target.checked)}
-                  className="rounded"
-                />
-                <Label htmlFor="openOnly">Show only open stores</Label>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {(showOpenOnly ? nearbyStores.filter(store => store.currentOpeningHours?.openNow) : nearbyStores).map((store, idx) => (
-                  <Card key={idx} className="magnet-card overflow-hidden">
-                    <CardContent className="p-4">
-                      <div className="mb-3 flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <StoreIcon className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground">{store.displayName.text}</p>
-                            <p className="text-xs text-muted-foreground">{store.formattedAddress}</p>
-                            {userLocation && (() => {
-                              const distance = calculateDistance(userLocation.lat, userLocation.lng, store.location.latitude, store.location.longitude);
-                              const travelTimes = getEstimatedTravelTime(distance);
-                              return (
-                                <div className="text-xs text-muted-foreground space-y-1">
-                                  <p>{distance.toFixed(1)} km away</p>
-                                  <p>🚶 {travelTimes.walking} • 🚗 {travelTimes.driving}</p>
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => openInGoogleMaps(store)}
-                        >
-                          <Navigation className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {store.rating && (
-                            <Badge variant="outline" className="text-xs">
-                              ⭐ {store.rating}
-                            </Badge>
-                          )}
-                          {store.currentOpeningHours?.openNow !== undefined && (
-                            <Badge variant={store.currentOpeningHours.openNow ? 'default' : 'secondary'} className="text-xs">
-                              {store.currentOpeningHours.openNow ? 'Open now' : 'Closed'}
-                            </Badge>
-                          )}
-                        </div>
-                        <Badge className="status-fresh text-xs">
-                          <StoreIcon className="mr-1 h-3 w-3" /> Store Available
-                        </Badge>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </>
+      {/* Find Nearby Stores Button - Outside container with orange color */}
+      <div className="flex items-center gap-4">
+        <Button 
+          onClick={handleFindNearbyStores} 
+          disabled={nearbyLoading} 
+          className="bg-primary hover:bg-primary/90"
+        >
+          {nearbyLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <MapPin className="h-4 w-4 mr-2" />
           )}
-        </CardContent>
-      </Card>
+          Find Stores Near Me
+        </Button>
+        {nearbyError && (
+          <p className="text-sm text-destructive">{nearbyError}</p>
+        )}
+      </div>
 
-      {/* Results */}
-      {results.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="font-display text-xl font-semibold">
-            Stores in {selectedArea} ({results.length} result{results.length !== 1 ? 's' : ''})
-          </h2>
-          
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {results.map((store, idx) => (
-              <Card key={idx} className="magnet-card overflow-hidden">
-                <CardContent className="p-4">
-                  <div className="mb-3 flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <StoreIcon className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground">{store.displayName.text}</p>
-                        <p className="text-xs text-muted-foreground">{store.formattedAddress}</p>
-                        {userLocation && (() => {
-                          const distance = calculateDistance(userLocation.lat, userLocation.lng, store.location.latitude, store.location.longitude);
-                          const travelTimes = getEstimatedTravelTime(distance);
-                          return (
-                            <div className="text-xs text-muted-foreground space-y-1">
-                              <p>{distance.toFixed(1)} km away</p>
-                              <p>🚶 {travelTimes.walking} • 🚗 {travelTimes.driving}</p>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => openInGoogleMaps(store)}
-                    >
-                      <Navigation className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {store.rating && (
-                        <Badge variant="outline" className="text-xs">
-                          ⭐ {store.rating}
-                        </Badge>
-                      )}
-                      {store.currentOpeningHours?.openNow !== undefined && (
-                        <Badge variant={store.currentOpeningHours.openNow ? 'default' : 'secondary'} className="text-xs">
-                          {store.currentOpeningHours.openNow ? 'Open now' : 'Closed'}
-                        </Badge>
-                      )}
-                    </div>
-                    <Badge className="status-fresh text-xs">
-                      <StoreIcon className="mr-1 h-3 w-3" /> Store Available
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {results.length === 0 && !searching && (
+      {/* Product Search Results */}
+      {initialSearch && (
         <Card className="magnet-card">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
-              <ShoppingCart className="h-10 w-10 text-muted-foreground" />
-            </div>
-            <h3 className="mb-2 font-display text-xl font-semibold">Find stores in Singapore</h3>
-            <p className="text-center text-muted-foreground">
-              Select a store type (All = Supermarkets + Convenience stores) and enter an area in Singapore to find more stores nearby.
-            </p>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 font-display">
+              <ShoppingCart className="h-5 w-5" />
+              Products for "{initialSearch}"
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {productSearchLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary mr-2" />
+                Searching for products...
+              </div>
+            ) : productResults.length > 0 ? (
+              <div className="space-y-3">
+                {productResults.slice(0, 5).map((product, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="font-medium">{product.title}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {product.price} {product.measurement && `• ${product.measurement}`}
+                      </p>
+                    </div>
+                    {product.link && (
+                      <Button size="sm" variant="outline" asChild>
+                        <a href={product.link} target="_blank" rel="noopener noreferrer">
+                          View
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {productResults.length > 5 && (
+                  <p className="text-sm text-muted-foreground text-center">
+                    And {productResults.length - 5} more products found
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-4">
+                No products found for "{initialSearch}"
+              </p>
+            )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Stores with Item */}
+      {chainsWithItem.length > 0 && (
+        <Card className="magnet-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 font-display">
+              <MapPin className="h-5 w-5" />
+              Stores with "{initialSearch}"
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!userLocation && (
+              <Button onClick={handleFindNearbyStores} disabled={nearbyLoading}>
+                {nearbyLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MapPin className="mr-2 h-4 w-4" />
+                )}
+                Use my location to find nearest stores
+              </Button>
+            )}
+            {userLocation && Object.keys(nearestByChain).length > 0 ? (
+              <div className="space-y-3">
+                {chainsWithItem.map((chainId) => {
+                  const store = nearestByChain[chainId];
+                  const displayName = CHAIN_DISPLAY_NAME[chainId] || chainId;
+
+                  if (!store) {
+                    return (
+                      <div key={chainId} className="p-3 border rounded-lg">
+                        <p className="font-medium">{displayName}</p>
+                        <p className="text-sm text-muted-foreground">No nearby store found</p>
+                      </div>
+                    );
+                  }
+
+                  const distance = calculateDistance(
+                    userLocation.lat,
+                    userLocation.lng,
+                    store.location.latitude,
+                    store.location.longitude
+                  );
+
+                  return (
+                    <div key={chainId} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <p className="font-medium">{store.displayName?.text || displayName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {store.formattedAddress}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {distance.toFixed(1)} km away
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const url = `https://www.google.com/maps/dir/?api=1&destination=${store.location.latitude},${store.location.longitude}`;
+                          window.open(url, '_blank');
+                        }}
+                      >
+                        <Navigation className="h-4 w-4 mr-1" />
+                        Navigate
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : userLocation ? (
+              <p className="text-muted-foreground text-center py-4">
+                Searching for stores with this item...
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filters */}
+      {(filteredResults.length > 0 || filteredNearbyStores.length > 0) && (
+        <Filters
+          distanceFilter={distanceFilter}
+          ratingFilter={ratingFilter}
+          onDistanceChange={setDistanceFilter}
+          onRatingChange={setRatingFilter}
+        />
+      )}
+
+      {/* Two-Column Results Layout */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Left Column: Stores in {searchLocation} */}
+        <div className="space-y-4">
+          <h2 className="font-display text-xl font-semibold">
+            Stores in {selectedArea || 'Search Area'}
+          </h2>
+          {filteredResults.length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-1">
+              {filteredResults.map((store, idx) => (
+                <StoreCard
+                  key={`search-${idx}`}
+                  store={store}
+                  userLocation={userLocation}
+                  onNavigate={openInGoogleMaps}
+                />
+              ))}
+            </div>
+          ) : (
+            <Card className="magnet-card">
+              <CardContent className="flex flex-col items-center justify-center py-8">
+                <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground text-center">
+                  {selectedArea ? `No stores found in ${selectedArea}` : 'Search for stores in an area above'}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Right Column: Stores with Item or Stores near me */}
+        <div className="space-y-4">
+          <h2 className="font-display text-xl font-semibold">
+            {chainsWithItem.length > 0 ? `Stores with "${initialSearch || 'item'}"` : 'Stores near me'}
+          </h2>
+          {chainsWithItem.length > 0 ? (
+            Object.keys(nearestByChain).length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-1">
+                {chainsWithItem.map((chainId) => {
+                  const store = nearestByChain[chainId];
+                  const displayName = CHAIN_DISPLAY_NAME[chainId] || chainId;
+
+                  if (!store) return null;
+
+                  const distance = calculateDistance(
+                    userLocation?.lat || 0,
+                    userLocation?.lng || 0,
+                    store.location.latitude,
+                    store.location.longitude
+                  );
+
+                  // Convert to NearbyStore format for StoreCard
+                  const nearbyStore: NearbyStore = {
+                    displayName: { text: store.displayName?.text || displayName },
+                    formattedAddress: store.formattedAddress || '',
+                    location: {
+                      latitude: store.location.latitude,
+                      longitude: store.location.longitude
+                    },
+                    rating: store.rating,
+                    currentOpeningHours: store.currentOpeningHours
+                  };
+
+                  return (
+                    <StoreCard
+                      key={`chain-${chainId}`}
+                      store={nearbyStore}
+                      userLocation={userLocation}
+                      onNavigate={openInGoogleMaps}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <Card className="magnet-card">
+                <CardContent className="flex flex-col items-center justify-center py-8">
+                  <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground text-center">
+                    {userLocation ? 'Finding stores with this item...' : 'Use your location to find stores with this item'}
+                  </p>
+                </CardContent>
+              </Card>
+            )
+          ) : (
+            filteredNearbyStores.length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-1">
+                {filteredNearbyStores.map((store, idx) => (
+                  <StoreCard
+                    key={`nearby-${idx}`}
+                    store={store}
+                    userLocation={userLocation}
+                    onNavigate={openInGoogleMaps}
+                  />
+                ))}
+              </div>
+            ) : (
+              <Card className="magnet-card">
+                <CardContent className="flex flex-col items-center justify-center py-8">
+                  <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground text-center">
+                    {nearbyError ? nearbyError : 'Use your location to find nearby stores'}
+                  </p>
+                </CardContent>
+              </Card>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* In-App Map Modal with Detailed Directions */}
+      {selectedMapStore && (
+        <InAppMap
+          isOpen={showMapModal}
+          onClose={() => setShowMapModal(false)}
+          destination={{
+            lat: selectedMapStore.location.latitude,
+            lng: selectedMapStore.location.longitude,
+            name: selectedMapStore.displayName.text,
+            address: selectedMapStore.formattedAddress,
+            rating: selectedMapStore.rating,
+            isOpen: selectedMapStore.currentOpeningHours?.openNow
+          }}
+          origin={userLocation ?? undefined}
+        />
       )}
 
       {/* Map Modal */}

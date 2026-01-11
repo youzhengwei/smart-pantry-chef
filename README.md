@@ -145,9 +145,129 @@ For immediate testing, you can use the included CORS proxy server:
 
 This proxy will forward requests to your Railway webhook while handling CORS properly.
 
-**⚠️ Warning**: The CORS proxy is only for development testing. For production, configure CORS properly in your n8n/Railway app.
+## Product Search & Store Locator Integration
 
-## What technologies are used for this project?
+The app includes a product search feature that scrapes supermarket websites and integrates with Google Places to find nearby stores carrying specific items.
+
+### Backend Setup
+
+The product search functionality uses a standalone Express server that scrapes NTUC FairPrice for product information.
+
+#### Express Server Setup
+
+1. **Navigate to the scraper backend**:
+   ```bash
+   cd scraper-backend
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Run locally for development**:
+   ```bash
+   npm run dev
+   ```
+
+4. **Build and run for production**:
+   ```bash
+   npm run build
+   npm start
+   ```
+
+#### Deploy to Render/Railway
+
+- **Build Command**: `npm install && npm run build`
+- **Start Command**: `npm start`
+- **Environment Variables**: `PORT` (optional, defaults to 3000)
+
+The server exposes a `/search-products` endpoint that accepts POST requests with:
+```json
+{
+  "query": "Milk 1 kg"
+}
+```
+
+Response format:
+```json
+{
+  "results": [
+    {
+      "supermarket": "ntuc",
+      "title": "HL Milk Low Fat 1L",
+      "price": "$3.20",
+      "measurement": "1L",
+      "link": "https://www.fairprice.com.sg/product/hl-milk-low-fat-1l-12129496"
+    }
+  ]
+}
+```
+
+### N8N Integration for Product Search (Optional)
+
+To integrate with n8n for additional processing:
+
+#### 1. Environment Configuration
+
+Add to your `.env` file:
+```env
+VITE_N8N_WEBHOOK_URL=https://your-n8n-instance.com/webhook/search-products
+```
+
+#### 2. N8N Workflow Setup
+
+Create an n8n workflow with:
+
+1. **Webhook Node** (Trigger):
+   - HTTP Method: POST
+   - Path: `/webhook/search-products`
+   - Response Mode: When Last Node Finishes
+
+2. **HTTP Request Node** (Call Express Server):
+   - Method: POST
+   - URL: `https://your-scraper-backend.onrender.com/search-products`
+   - Body: `{"query": "{{ $json.query }}"}`
+
+3. **Set Node** (Format Response):
+   - Set: `results = {{ $node["HTTP Request"].json.body.results }}`
+
+4. **Webhook Response**:
+   - Respond with: `{{ { "results": $node["Set"].json.results } }}`
+
+#### 3. CORS Configuration for N8N
+
+Ensure your n8n webhook allows CORS requests from your frontend domain. In the webhook node settings, add appropriate CORS headers.
+
+### Direct Integration (Recommended)
+
+For simpler setup, you can call the Express server directly from the frontend without n8n:
+
+```env
+VITE_N8N_WEBHOOK_URL=https://your-scraper-backend.onrender.com/search-products
+```
+
+### Frontend Integration
+
+The frontend automatically:
+
+1. **Dashboard**: "Find" buttons on low-stock items navigate to Store Locator with the item query
+2. **Store Locator**: Automatically searches for products and finds nearby stores carrying them
+3. **Google Places**: Locates nearest supermarket chains that stock the searched item
+
+### Environment Variables Required
+
+```env
+# Google Maps/Places API
+VITE_GOOGLE_PLACES_API_KEY=your_google_api_key
+
+# Product search backend
+VITE_N8N_WEBHOOK_URL=https://your-scraper-backend.onrender.com/search-products
+```
+
+### Manual Testing
+
+You can test the product search by navigating directly to `/store-locator?query=Milk%201%20kg` or by clicking "Find" on any low-stock item in the Dashboard.
 
 This project is built with:
 

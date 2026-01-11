@@ -1,11 +1,20 @@
-const express = require('express');
-const admin = require('firebase-admin');
-const OpenAI = require('openai');
-const cors = require('cors');
-require('dotenv').config();
+import express from 'express';
+import admin from 'firebase-admin';
+import OpenAI from 'openai';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+dotenv.config();
+
+// Get the directory name for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Initialize Firebase Admin
-const serviceAccount = require('../freshkeep-3c642-firebase-adminsdk-fbsvc-55bdbf1512.json');
+const serviceAccount = JSON.parse(readFileSync(join(__dirname, '../serviceAccountKey.json'), 'utf8'));
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -347,5 +356,4 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-module.exports = app;</content>
-<parameter name="filePath">c:\RepublicPolythenic\Year 2\Sem 2\Special Project\smart-pantry-chef\server.js
+export default app;

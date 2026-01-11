@@ -1,7 +1,101 @@
+/**
+ * DEPRECATED: This Firebase Cloud Function is no longer used.
+ * The active product search backend is now the standalone Express server in /scraper-backend/
+ * This file is kept for reference and potential future use.
+ */
+
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+import * as corsLib from 'cors';
 
 admin.initializeApp();
+
+const cors = corsLib({ origin: true });
+
+interface ProductResult {
+  supermarket: 'ntuc';
+  title: string;
+  price: string;
+  measurement: string;
+  link: string;
+}
+
+async function scrapeNtuc(query: string): Promise<ProductResult[]> {
+  const encodedQuery = encodeURIComponent(query);
+  const url = `https://www.fairprice.com.sg/search?query=${encodedQuery}`;
+
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+
+    const $ = cheerio.load(response.data);
+    const results: ProductResult[] = [];
+
+    // Find product cards - adjust selectors based on FairPrice website structure
+    $('.product-card, .product-item, [data-testid*="product"]').each((index: number, element: any) => {
+      const $el = $(element);
+
+      // Extract product title
+      const title = $el.find('.product-title, .product-name, h3, h4').first().text().trim() ||
+                   $el.find('a').attr('title')?.trim() || '';
+
+      // Extract price
+      const price = $el.find('.product-price, .price, [data-testid*="price"]').first().text().trim() ||
+                   $el.find('.price').text().trim() || '';
+
+      // Extract measurement/unit
+      const measurement = $el.find('.product-weight, .weight, .unit, .measurement').first().text().trim() || '';
+
+      // Extract product link
+      const link = $el.find('a').attr('href');
+      const fullLink = link ? (link.startsWith('http') ? link : `https://www.fairprice.com.sg${link}`) : '';
+
+      if (title && price) {
+        results.push({
+          supermarket: 'ntuc',
+          title,
+          price,
+          measurement,
+          link: fullLink
+        });
+      }
+    });
+
+    return results.slice(0, 10); // Limit to first 10 results
+  } catch (error) {
+    console.error('Error scraping NTUC:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to scrape product data');
+  }
+}
+
+export const searchProducts = functions.https.onRequest(async (req, res) => {
+  return cors(req, res, async () => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    try {
+      const { query } = req.body;
+
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({ error: 'Query parameter is required and must be a string' });
+        return;
+      }
+
+      const results = await scrapeNtuc(query);
+      res.json({ results });
+    } catch (error) {
+      console.error('Error in searchProducts:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+});
 
 export const getNearbyStores = functions.https.onCall(async (data: any, context) => {
   const { lat, lng } = data as { lat: number; lng: number };
