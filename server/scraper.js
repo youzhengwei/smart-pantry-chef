@@ -75,7 +75,7 @@ export async function scrapeStore(store, query, browser = null) {
     // Create browser if not provided
     if (!browser) {
       browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -296,9 +296,9 @@ export async function scrapeStore(store, query, browser = null) {
  */
 export async function scrapeAllStores(query, stores = STORES) {
   // ===== START OF SCRAPER FUNCTION =====
-  console.log('[SCRAPER] 🔍 Starting scrapeAllStores for query:', query);
+  console.log('[SCRAPER] Starting scrapeAllStores for query:', query);
   console.log('[SCRAPER] Stores to check:', stores.length);
-  console.log('[SCRAPER] Environment:', process.env.NODE_ENV || 'development');
+  console.log('[SCRAPER] Environment:', process.env.NODE_ENV);
   
   if (!query || typeof query !== 'string' || query.trim().length === 0) {
     console.error('[SCRAPER] ❌ Invalid query provided');
@@ -323,7 +323,7 @@ export async function scrapeAllStores(query, stores = STORES) {
     console.log('[SCRAPER] NODE_ENV:', process.env.NODE_ENV || 'development');
     
     const launchArgs = {
-      headless: 'new', // Use new headless mode
+      headless: true, // Use stable headless mode
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -430,7 +430,7 @@ export async function scrapeAllStores(query, stores = STORES) {
   console.log('='.repeat(60));
   
   // ===== END OF SCRAPER FUNCTION =====
-  console.log('[SCRAPER] 🏁 Finished scrapeAllStores, results count:', results.length);
+  console.log('[SCRAPER] Finished scrapeAllStores with', results.length, 'results');
   console.log('[SCRAPER] Results:', JSON.stringify(results.map(r => ({ store: r.storeName, hasItem: r.hasItem, error: r.error })), null, 2));
   
   return results;
