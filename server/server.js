@@ -359,71 +359,22 @@ app.get('/health', (req, res) => {
 
 // POST /search-products - Scrape multiple supermarkets to check product availability
 app.post('/search-products', async (req, res) => {
+  console.log('[search-products] Endpoint called');
+  console.log('[search-products] Body:', req.body);
+  console.log('[search-products] Environment:', process.env.NODE_ENV);
   try {
     const { query } = req.body;
-
-    // Validate request
-    if (!query || typeof query !== 'string' || query.trim().length === 0) {
-      console.log('[/search-products] ❌ Missing or invalid query parameter');
-      return res.status(400).json({ 
-        error: 'Query parameter is required and must be a non-empty string',
-        example: { query: "Milk 1 kg" }
-      });
+    if (!query) {
+      return res.status(400).json({ error: 'Missing query' });
     }
 
-    console.log('\n' + '='.repeat(60));
-    console.log('[/search-products] 🚀 Endpoint called');
-    console.log('[/search-products] Query:', query);
-    console.log('[/search-products] Environment:', process.env.NODE_ENV || 'development');
-    console.log('[/search-products] Platform:', process.platform);
-    console.log('[/search-products] Node version:', process.version);
-    console.log('='.repeat(60));
-
-    // Call scraper - NO production shortcuts, always runs the real scraper
-    console.log('[/search-products] Calling scrapeAllStores...');
-    const results = await scrapeAllStores(query.trim());
-    console.log('[/search-products] ✓ scrapeAllStores returned:', results.length, 'results');
-    
-    // Log if any stores had errors
-    const storesWithErrors = results.filter(r => r.error);
-    if (storesWithErrors.length > 0) {
-      console.warn('[/search-products] ⚠️  Stores with errors:', storesWithErrors.length);
-      storesWithErrors.forEach(store => {
-        console.warn('  -', store.storeName, ':', store.error);
-      });
-    }
-
-    // Always return results array
-    const response = {
-      query: query.trim(),
-      results,
-      summary: {
-        total: results.length,
-        available: results.filter(r => r.hasItem).length,
-        unavailable: results.filter(r => !r.hasItem).length,
-        errors: storesWithErrors.length
-      }
-    };
-    
-    console.log('[/search-products] Sending response with', response.results.length, 'results');
-    console.log('='.repeat(60) + '\n');
-    
-    return res.json(response);
-
-  } catch (error) {
-    // Catastrophic error - log everything
-    console.error('\n' + '='.repeat(60));
-    console.error('[/search-products] ❌ CATASTROPHIC ERROR');
-    console.error('Error type:', error.constructor.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('='.repeat(60) + '\n');
-    
-    return res.status(500).json({
-      error: 'Internal server error while scraping stores',
-      message: String(error.message),
-      details: String(error)
-    });
+    console.log('[search-products] Calling scrapeAllStores...');
+    const results = await scrapeAllStores(query);
+    console.log('[search-products] scrapeAllStores returned', results.length, 'results');
+    return res.json({ results });
+  } catch (err) {
+    console.error('[search-products] Error:', err);
+    return res.status(500).json({ error: 'Internal error', details: String(err) });
   }
 });
 
