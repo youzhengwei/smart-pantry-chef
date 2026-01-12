@@ -582,6 +582,9 @@ const StoreLocator: React.FC = () => {
     setWebhookResults([]);
 
     try {
+      console.log('Fetching from N8N webhook:', N8N_WEBHOOK_URL);
+      console.log('Query:', webhookQuery);
+      
       const res = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: {
@@ -590,20 +593,31 @@ const StoreLocator: React.FC = () => {
         body: JSON.stringify({ query: webhookQuery }),
       });
 
+      console.log('Response status:', res.status);
+
       if (!res.ok) {
-        throw new Error(`Search failed: ${res.status}`);
+        throw new Error(`Search failed: ${res.status} ${res.statusText}`);
       }
 
       const data = await res.json();
+      console.log('Webhook response data:', data);
+      
       const results: StoreResult[] = data.results || [];
       setWebhookResults(results);
 
       if (results.length === 0) {
         setWebhookError(`No results found for "${webhookQuery}"`);
+      } else {
+        // If we got results, try to find user location to show nearest stores
+        if (!userLocation) {
+          await handleFindNearbyStores();
+        }
       }
     } catch (error) {
-      console.error('Product store search failed', error);
-      setWebhookError('Search failed. Please try again in a moment.');
+      console.error('Product store search failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error details:', errorMessage);
+      setWebhookError(`Search failed: ${errorMessage}. Please try again.`);
     } finally {
       setWebhookLoading(false);
     }
@@ -792,28 +806,88 @@ const StoreLocator: React.FC = () => {
           )}
 
           {webhookResults.length > 0 && (
-            <div className="space-y-2">
-              {webhookResults.map((result, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="font-semibold">{result.storeName}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant={result.hasItem ? 'default' : 'secondary'}>
-                        {result.hasItem ? 'Has item' : 'Not found'}
-                      </Badge>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h3 className="font-semibold text-sm">Stores with this product:</h3>
+                {webhookResults.map((result, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex-1">
+                      <p className="font-semibold">{result.storeName}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant={result.hasItem ? 'default' : 'secondary'}>
+                          {result.hasItem ? '✓ Has item' : '✗ Not found'}
+                        </Badge>
+                      </div>
                     </div>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      asChild
+                    >
+                      <a href={result.url} target="_blank" rel="noopener noreferrer">
+                        View
+                      </a>
+                    </Button>
                   </div>
+                ))}
+              </div>
+
+              {/* Show location prompt if not already fetched */}
+              {!userLocation && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-900 mb-2">
+                    Enable location to find the nearest store with this product
+                  </p>
                   <Button 
                     size="sm" 
+                    onClick={handleFindNearbyStores}
+                    disabled={nearbyLoading}
                     variant="outline"
-                    asChild
                   >
-                    <a href={result.url} target="_blank" rel="noopener noreferrer">
-                      Open store page
-                    </a>
+                    {nearbyLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <MapPin className="h-4 w-4 mr-2" />
+                    )}
+                    Use my location
                   </Button>
                 </div>
-              ))}
+              )}
+
+              {/* Show nearest stores if location is available */}
+              {userLocation && filteredNearbyStores.length > 0 && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <h3 className="font-semibold text-sm text-green-900 mb-2">Nearest stores with this product:</h3>
+                  <div className="space-y-2">
+                    {filteredNearbyStores.slice(0, 3).map((store, idx) => {
+                      const distance = calculateDistance(
+                        userLocation.lat,
+                        userLocation.lng,
+                        store.location.latitude,
+                        store.location.longitude
+                      );
+                      return (
+                        <div key={idx} className="flex items-center justify-between p-2 bg-white rounded border">
+                          <div>
+                            <p className="text-sm font-medium">{store.displayName.text}</p>
+                            <p className="text-xs text-gray-600">{distance.toFixed(1)} km away</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              const url = `https://www.google.com/maps/dir/?api=1&destination=${store.location.latitude},${store.location.longitude}`;
+                              window.open(url, '_blank');
+                            }}
+                          >
+                            <Navigation className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
