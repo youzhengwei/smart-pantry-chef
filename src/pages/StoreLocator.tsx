@@ -538,13 +538,28 @@ const StoreLocator: React.FC = () => {
 
       const data = await response.json();
       console.log('searchProducts - Response data:', data);
+      console.log('searchProducts - Full response object:', JSON.stringify(data, null, 2));
       console.log('searchProducts - data.results type:', typeof data.results);
+      console.log('searchProducts - data.results value:', data.results);
+      
+      // Check if results is the literal expression string (n8n misconfiguration)
+      if (typeof data.results === 'string' && data.results.includes('$json')) {
+        console.error('ERROR: n8n workflow is returning a literal expression string instead of evaluating it');
+        console.error('The "Respond to Webhook" node in n8n is misconfigured');
+        throw new Error(
+          'N8N Workflow Configuration Error: The "Respond to Webhook" node is not properly evaluating the results expression. ' +
+          'In n8n, go to the Respond to Webhook node and ensure the response body mode is set to "Using Expressions" and use: ' +
+          '{{ { "results": $json.body.results } }} or similar. Do NOT use quotes around the expression.'
+        );
+      }
       
       // Validate that results is an array
       if (!Array.isArray(data.results)) {
-        console.error('Invalid response format from n8n. Expected results array, got:', typeof data.results, data.results);
+        console.error('Invalid response format from n8n. Expected results array, got:', typeof data.results);
+        console.error('Complete response:', data);
         throw new Error(
-          `Invalid response format from n8n. Expected results array, got: ${typeof data.results}`
+          `Invalid response format from n8n. Expected results array, got: ${typeof data.results}. ` +
+          `Response: ${JSON.stringify(data)}`
         );
       }
       
@@ -623,13 +638,28 @@ const StoreLocator: React.FC = () => {
 
       const data = await res.json();
       console.log('Webhook response data:', data);
+      console.log('Webhook response full object:', JSON.stringify(data, null, 2));
       console.log('Webhook response data.results type:', typeof data.results);
       console.log('Webhook response data.results:', data.results);
       
+      // Check if results is the literal expression string (n8n misconfiguration)
+      if (typeof data.results === 'string' && data.results.includes('$json')) {
+        console.error('ERROR: n8n workflow is returning a literal expression string instead of evaluating it');
+        throw new Error(
+          'N8N Configuration Error: The webhook response is returning a literal expression string. ' +
+          'In n8n "Respond to Webhook" node, ensure the response body is properly configured to evaluate expressions. ' +
+          'Use: {{ { "results": $json.body.results } }} (with curly braces, no extra quotes)'
+        );
+      }
+      
       // Validate that results is an array
-      if (!data.results || typeof data.results === 'string' || !Array.isArray(data.results)) {
-        console.error('Invalid response format from n8n. Expected array, got:', typeof data.results, data.results);
-        throw new Error('Invalid response from search service. The n8n workflow output is not configured correctly. Please check the "Respond to Webhook" node.');
+      if (!Array.isArray(data.results)) {
+        console.error('Invalid response format from n8n. Expected results array, got:', typeof data.results);
+        console.error('Complete response:', data);
+        throw new Error(
+          `Invalid response format. Expected results array, got: ${typeof data.results}. ` +
+          `Full response: ${JSON.stringify(data)}`
+        );
       }
       
       const results: StoreResult[] = data.results;
@@ -651,6 +681,83 @@ const StoreLocator: React.FC = () => {
     } finally {
       setWebhookLoading(false);
     }
+  };
+
+  // Handle finding nearest store using Google Places API
+  const handleFindNearestStore = async (chainName: string) => {
+    if (!navigator.geolocation) {
+      toast({
+        title: 'Location not available',
+        description: 'Your browser does not support geolocation.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        console.log('User location:', latitude, longitude);
+        console.log('Searching for:', chainName);
+
+        // Verify Google Maps API is loaded
+        if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+          toast({
+            title: 'Maps API not loaded',
+            description: 'Please try again in a moment.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        const service = new google.maps.places.PlacesService(
+          document.createElement('div')
+        );
+
+        const request = {
+          location: new google.maps.LatLng(latitude, longitude),
+          rankBy: google.maps.places.RankBy.DISTANCE,
+          keyword: `${chainName} supermarket`,
+          type: 'supermarket',
+        };
+
+        service.nearbySearch(
+          request,
+          (results: google.maps.places.PlaceResult[] | null, status: google.maps.places.PlacesServiceStatus) => {
+            if (status !== google.maps.places.PlacesServiceStatus.OK || !results || results.length === 0) {
+              toast({
+                title: 'No nearby store found',
+                description: `Could not find ${chainName} near your location.`,
+                variant: 'destructive',
+              });
+              return;
+            }
+
+            const nearest = results[0];
+            const dest = nearest.geometry?.location;
+            if (!dest) {
+              toast({
+                title: 'Location error',
+                description: 'Could not get store location.',
+                variant: 'destructive',
+              });
+              return;
+            }
+
+            const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${latitude},${longitude}&destination=${dest.lat()},${dest.lng()}&destination_place_id=${nearest.place_id}`;
+            window.open(mapsUrl, '_blank');
+          }
+        );
+      },
+      (error) => {
+        console.error('Geolocation error:', error);
+        toast({
+          title: 'Location access denied',
+          description: 'Please enable location access to find nearest stores.',
+          variant: 'destructive',
+        });
+      }
+    );
   };
 
   // Find nearest stores for chains using Google Places
@@ -852,11 +959,9 @@ const StoreLocator: React.FC = () => {
                     <Button 
                       size="sm" 
                       variant="outline"
-                      asChild
+                      onClick={() => handleFindNearestStore(result.storeName)}
                     >
-                      <a href={result.url} target="_blank" rel="noopener noreferrer">
-                        View
-                      </a>
+                      Find nearest store
                     </Button>
                   </div>
                 ))}
@@ -972,81 +1077,7 @@ const StoreLocator: React.FC = () => {
         </Card>
       )}
 
-      {/* Stores with Item */}
-      {chainsWithItem.length > 0 && (
-        <Card className="magnet-card">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 font-display">
-              <MapPin className="h-5 w-5" />
-              Stores with "{initialSearch}"
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!userLocation && (
-              <Button onClick={handleFindNearbyStores} disabled={nearbyLoading}>
-                {nearbyLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <MapPin className="mr-2 h-4 w-4" />
-                )}
-                Use my location to find nearest stores
-              </Button>
-            )}
-            {userLocation && Object.keys(nearestByChain).length > 0 ? (
-              <div className="space-y-3">
-                {chainsWithItem.map((chainId) => {
-                  const store = nearestByChain[chainId];
-                  const displayName = CHAIN_DISPLAY_NAME[chainId] || chainId;
-
-                  if (!store) {
-                    return (
-                      <div key={chainId} className="p-3 border rounded-lg">
-                        <p className="font-medium">{displayName}</p>
-                        <p className="text-sm text-muted-foreground">No nearby store found</p>
-                      </div>
-                    );
-                  }
-
-                  const distance = calculateDistance(
-                    userLocation.lat,
-                    userLocation.lng,
-                    store.location.latitude,
-                    store.location.longitude
-                  );
-
-                  return (
-                    <div key={chainId} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">{store.displayName?.text || displayName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {store.formattedAddress}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {distance.toFixed(1)} km away
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          const url = `https://www.google.com/maps/dir/?api=1&destination=${store.location.latitude},${store.location.longitude}`;
-                          window.open(url, '_blank');
-                        }}
-                      >
-                        <Navigation className="h-4 w-4 mr-1" />
-                        Navigate
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : userLocation ? (
-              <p className="text-muted-foreground text-center py-4">
-                Searching for stores with this item...
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
-      )}
+      {/* Removed: Stores with Item section - replaced by webhook results above */}
 
       {/* Filters */}
       {(filteredResults.length > 0 || filteredNearbyStores.length > 0) && (
