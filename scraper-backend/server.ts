@@ -18,6 +18,41 @@ interface ProductResult {
   link: string;
 }
 
+/**
+ * Remove quantity and unit from product text
+ * Extracts only the ingredient name
+ */
+function cleanProductName(text: string): string {
+  // Split by newlines in case format is "1 kg\nNuts" or "Nuts\n1 kg"
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  
+  // Pattern to match quantity + unit combinations
+  const quantityUnitPattern = /^\s*\d+(\.\d+)?\s*[x×X]?\s*\d*(\.\d+)?\s*(kg|kilogram|g|gram|mg|milligram|oz|ounce|ml|milliliter|l|liter|cl|centiliter|fl\s*oz|pack|packs|pc|pcs|piece|pieces|each|ea|box|boxes|bottle|bottles|can|cans|jar|jars|lb|lbs|pound|pounds)\b/i;
+
+  let cleaned = '';
+  
+  // Process each line - keep lines that don't look like quantities
+  for (const line of lines) {
+    if (!quantityUnitPattern.test(line)) {
+      // This line doesn't start with a quantity/unit, so keep it
+      if (cleaned) {
+        cleaned += ' ' + line;
+      } else {
+        cleaned = line;
+      }
+    }
+  }
+  
+  // If we removed all lines, just clean the original text as fallback
+  if (!cleaned) {
+    cleaned = text.trim();
+    // Try to remove quantity/unit from start
+    cleaned = cleaned.replace(/^\s*\d+(\.\d+)?\s*[x×X]?\s*\d*(\.\d+)?\s*(kg|kilogram|g|gram|mg|milligram|oz|ounce|ml|milliliter|l|liter|cl|centiliter|fl\s*oz|pack|packs|pc|pcs|piece|pieces|each|ea|box|boxes|bottle|bottles|can|cans|jar|jars|lb|lbs|pound|pounds)\s+/i, '').trim();
+  }
+  
+  return cleaned;
+}
+
 async function scrapeNtuc(query: string): Promise<ProductResult[]> {
   const encodedQuery = encodeURIComponent(query);
   const url = `https://www.fairprice.com.sg/search?query=${encodedQuery}`;
@@ -36,9 +71,12 @@ async function scrapeNtuc(query: string): Promise<ProductResult[]> {
     $('.product-card, .product-item, [data-testid*="product"]').each((index: number, element: any) => {
       const $el = $(element);
 
-      // Extract product title
-      const title = $el.find('.product-title, .product-name, h3, h4').first().text().trim() ||
+      // Extract product title and clean it from quantities/units
+      let title = $el.find('.product-title, .product-name, h3, h4').first().text().trim() ||
                    $el.find('a').attr('title')?.trim() || '';
+      
+      // Clean the product name by removing quantities and units
+      title = cleanProductName(title);
 
       // Extract price
       const price = $el.find('.product-price, .price, [data-testid*="price"]').first().text().trim() ||

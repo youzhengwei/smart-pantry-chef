@@ -9,10 +9,11 @@ const PUPPETEER_LAUNCH_OPTIONS = {
     '--disable-dev-shm-usage',
     '--disable-accelerated-2d-canvas',
     '--disable-gpu',
-    '--no-first-run',
-    '--no-zygote',
-    '--single-process'
-  ]
+    '--window-size=1920,1080',
+    '--disable-web-security',
+    '--disable-features=IsolateOrigins,site-per-process'
+  ],
+  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (typeof puppeteer.executablePath === 'function' ? puppeteer.executablePath() : undefined)
 };
 
 // Store configurations for Singapore supermarkets
@@ -28,8 +29,11 @@ export const STORES = [
       productCard: '[data-testid="product"]',
       productCardFallback: [
         'a[class*="sc-e68f503d-3"]',
-        '[class*="product-card"]',
+        '[data-testid*="product"]',
+        'div[class*="product-card"]',
+        'a[href*="/product"]',
         '[class*="product-item"]',
+        'div[role="link"]',
         'article'
       ],
       noResults: '.no-results, .empty-state, [data-testid="no-results"]'
@@ -44,8 +48,10 @@ export const STORES = [
     selectors: {
       productCard: 'a.product-preview',
       productCardFallback: [
+        'a[href*="/product"]',
+        'div[class*="product"]',
         '.product-item',
-        'a[href*="/product/"]',
+        'a[class*="product"]',
         'article'
       ],
       noResults: '.no-results, .empty-state, [class*="no-result"]'
@@ -60,7 +66,10 @@ export const STORES = [
       productCard: 'a.ware-wrapper',
       productCardFallback: [
         'a.router-link',
-        '[class*="product"]',
+        'a[href*="/product"]',
+        'div[class*="ware"]',
+        'div[class*="product"]',
+        '[class*="product-item"]',
         'article'
       ],
       noResults: '.no-results, .empty-state, [class*="no-result"]'
@@ -73,6 +82,43 @@ export const STORES = [
  */
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Remove quantity and unit from product text
+ * Extracts only the ingredient name
+ * @param {string} text - Product text containing quantity, unit, and name
+ * @returns {string} Cleaned product name without quantity and unit
+ */
+function cleanProductName(text) {
+  // Split by newlines in case format is "1 kg\nNuts" or "Nuts\n1 kg"
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  
+  // Pattern to match quantity + unit combinations
+  const quantityUnitPattern = /^\s*\d+(\.\d+)?\s*[x×X]?\s*\d*(\.\d+)?\s*(kg|kilogram|g|gram|mg|milligram|oz|ounce|ml|milliliter|l|liter|cl|centiliter|fl\s*oz|pack|packs|pc|pcs|piece|pieces|each|ea|box|boxes|bottle|bottles|can|cans|jar|jars|lb|lbs|pound|pounds)\b/i;
+
+  let cleaned = '';
+  
+  // Process each line - keep lines that don't look like quantities
+  for (const line of lines) {
+    if (!quantityUnitPattern.test(line)) {
+      // This line doesn't start with a quantity/unit, so keep it
+      if (cleaned) {
+        cleaned += ' ' + line;
+      } else {
+        cleaned = line;
+      }
+    }
+  }
+  
+  // If we removed all lines, just clean the original text as fallback
+  if (!cleaned) {
+    cleaned = text.trim();
+    // Try to remove quantity/unit from start
+    cleaned = cleaned.replace(/^\s*\d+(\.\d+)?\s*[x×X]?\s*\d*(\.\d+)?\s*(kg|kilogram|g|gram|mg|milligram|oz|ounce|ml|milliliter|l|liter|cl|centiliter|fl\s*oz|pack|packs|pc|pcs|piece|pieces|each|ea|box|boxes|bottle|bottles|can|cans|jar|jars|lb|lbs|pound|pounds)\s+/i, '').trim();
+  }
+  
+  return cleaned;
 }
 
 /**
@@ -153,9 +199,49 @@ export async function scrapeStore(store, query, browser = null) {
       };
     }
 
+    // Accept common consent / cookies banners (best-effort, non-blocking)
+    try {
+      await page.evaluate(() => {
+        const labels = ['accept', 'agree', 'got it', 'i understand', 'close'];
+        const buttons = Array.from(document.querySelectorAll('button, [role="button"], .cookie, .consent'));
+        for (const btn of buttons) {
+          const text = (btn.innerText || btn.textContent || '').toLowerCase();
+          if (labels.some(l => text.includes(l))) {
+            try {
+              btn.click();
+            } catch {}
+          }
+        }
+      });
+    } catch (consentErr) {
+      console.log(`[${store.storeName}] Consent dismiss failed: ${consentErr.message || consentErr}`);
+    }
+
     // Wait for dynamic content with delay instead of waitForTimeout
     console.log(`[${store.storeName}] Waiting for content to render...`);
-    await delay(2000);
+    await delay(4000);
+
+    // Gentle scroll to trigger lazy-loaded products
+    try {
+      await page.evaluate(async () => {
+        await new Promise(resolve => {
+          const totalScroll = Math.max(document.body.scrollHeight, 3000);
+          let scrolled = 0;
+          const step = 400;
+          const interval = setInterval(() => {
+            scrolled += step;
+            window.scrollTo(0, scrolled);
+            if (scrolled >= totalScroll) {
+              clearInterval(interval);
+              resolve(null);
+            }
+          }, 150);
+        });
+      });
+      await delay(2000);
+    } catch (scrollErr) {
+      console.log(`[${store.storeName}] Scroll hint failed: ${scrollErr.message || scrollErr}`);
+    }
 
     // Try to wait for product container or results area
     const containerSelectors = [
@@ -219,19 +305,19 @@ export async function scrapeStore(store, query, browser = null) {
     console.log(`[${store.storeName}] 🔍 Checking for products with selector: ${store.selectors.productCard}`);
     
     try {
-      // Try to wait for the primary selector with 15 second timeout
-      await page.waitForSelector(store.selectors.productCard, { timeout: 15000 });
+      // Try to wait for the primary selector with 10 second timeout (reduced from 20)
+      await page.waitForSelector(store.selectors.productCard, { timeout: 10000 });
       console.log(`[${store.storeName}] ✓ waitForSelector SUCCEEDED for: ${store.selectors.productCard}`);
       productSelector = store.selectors.productCard;
     } catch (e) {
-      console.log(`[${store.storeName}] ⚠️  waitForSelector TIMED OUT (15s) for: ${store.selectors.productCard}`);
+      console.log(`[${store.storeName}] ⚠️  waitForSelector TIMED OUT for: ${store.selectors.productCard}`);
       
       // Try fallback selectors if configured
       if (store.selectors.productCardFallback && Array.isArray(store.selectors.productCardFallback)) {
         console.log(`[${store.storeName}] 🔄 Trying ${store.selectors.productCardFallback.length} fallback selectors...`);
         for (const fallbackSelector of store.selectors.productCardFallback) {
           try {
-            await page.waitForSelector(fallbackSelector, { timeout: 5000 });
+            await page.waitForSelector(fallbackSelector, { timeout: 3000 });
             console.log(`[${store.storeName}] ✓ Fallback SUCCEEDED: ${fallbackSelector}`);
             productSelector = fallbackSelector;
             break;
@@ -243,12 +329,161 @@ export async function scrapeStore(store, query, browser = null) {
     }
 
     // Query with the selector we found (or don't have one)
+    let productTexts = [];
     if (productSelector) {
       const products = await page.$$(productSelector);
       console.log(`[${store.storeName}] 📦 Found ${products.length} products with selector: ${productSelector}`);
-      hasProducts = products.length > 0;
+
+      if (products.length > 0) {
+        // Extract text from found products
+        productTexts = await page.$$eval(productSelector, nodes =>
+          nodes.slice(0, 80).map(node => {
+            const text = (node.innerText || node.textContent || '').trim();
+            return text.split('\n').filter(line => line.trim().length > 0).join('\n');
+          }).filter(text => text.length > 0)
+        );
+        
+        // Filter out common error/UI messages that shouldn't be treated as products
+        const errorPatterns = [
+          /no products? found/i,
+          /no results?/i,
+          /nothing found/i,
+          /0 products?/i,
+          /found 0/i,
+          /check out our/i,
+          /try again/i,
+          /search returned/i,
+          /no items? match/i
+        ];
+        
+        productTexts = productTexts.filter(text => {
+          const lowerText = text.toLowerCase();
+          // Filter out texts that match error patterns
+          if (errorPatterns.some(pattern => pattern.test(lowerText))) {
+            return false;
+          }
+          // Filter out very short texts (likely UI elements, not products)
+          if (text.length < 5) {
+            return false;
+          }
+          return true;
+        });
+        
+        console.log(`[${store.storeName}] 📝 After filtering: ${productTexts.length} valid product texts`);
+      }
+    }
+
+    // If we didn't find products, try a broader search
+    if (productTexts.length === 0) {
+      console.log(`[${store.storeName}] 🔄 No products found with selectors, trying broader search...`);
+      try {
+        productTexts = await page.evaluate(() => {
+          // Try to find any element that might contain product info
+          const candidates = document.querySelectorAll('[class*="product"], [class*="item"], a, div[role="link"]');
+          const texts = [];
+          for (const el of candidates) {
+            const text = (el.innerText || el.textContent || '').trim();
+            if (text.length > 2 && text.length < 200) {
+              texts.push(text);
+            }
+          }
+          return texts.slice(0, 100);
+        });
+        console.log(`[${store.storeName}] 📦 Broad search found ${productTexts.length} potential product texts`);
+        
+        // Apply the same error filtering to broader search results
+        const errorPatterns = [
+          /no products? found/i,
+          /no results?/i,
+          /nothing found/i,
+          /0 products?/i,
+          /found 0/i,
+          /check out our/i,
+          /try again/i,
+          /search returned/i,
+          /no items? match/i
+        ];
+        
+        productTexts = productTexts.filter(text => {
+          const lowerText = text.toLowerCase();
+          // Filter out texts that match error patterns
+          if (errorPatterns.some(pattern => pattern.test(lowerText))) {
+            return false;
+          }
+          // Filter out very short texts (likely UI elements, not products)
+          if (text.length < 5) {
+            return false;
+          }
+          return true;
+        });
+        
+        console.log(`[${store.storeName}] 📝 After filtering broad search: ${productTexts.length} valid texts`);
+      } catch (e) {
+        console.log(`[${store.storeName}] ⚠️  Broad search also failed`);
+      }
+    }
+
+    // Now proceed with matching if we have product texts
+    if (productTexts.length > 0) {
+      const normalize = (str) => str
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      // Clean product names by removing quantities and units
+      const cleanedProductTexts = productTexts.map(text => cleanProductName(text));
+
+      // Create normalized query for matching
+      const queryNorm = normalize(query).trim();
+      const queryWords = queryNorm.split(' ').filter(w => w.length > 0);
+      
+      // STRICTER matching: check if query words appear as whole words with better validation
+      const matched = queryWords.length === 0 ? [] : cleanedProductTexts.filter(productName => {
+        const productNorm = normalize(productName);
+        const productWords = productNorm.split(' ');
+        
+        // Check if ALL query words appear in the product (as whole words or close matches)
+        return queryWords.every(queryWord => {
+          // Skip very short query words (less than 3 chars) to avoid false matches
+          if (queryWord.length < 3) {
+            // For very short words, require exact match only
+            return productWords.includes(queryWord);
+          }
+          
+          // Check exact word match first
+          if (productWords.includes(queryWord)) {
+            return true;
+          }
+          
+          // Check plural/singular variations (only for words 3+ chars)
+          if (queryWord.length >= 3) {
+            const singular = queryWord.replace(/s$/, '');
+            const plural = queryWord + 's';
+            if (productWords.includes(plural) || productWords.includes(singular)) {
+              return true;
+            }
+          }
+          
+          // Check if any product word contains the query word (for compound words)
+          // But only if query word is 4+ characters to avoid false matches
+          if (queryWord.length >= 4) {
+            return productWords.some(pw => pw.length >= queryWord.length && pw.includes(queryWord));
+          }
+          
+          return false;
+        });
+      });
+
+      hasProducts = matched.length > 0;
+      console.log(`[${store.storeName}] ✅ Matched products: ${matched.length} of ${cleanedProductTexts.length} (search: "${query}")`);
+      if (matched.length > 0) {
+        console.log(`[${store.storeName}] 📝 Found: ${matched.slice(0, 5).map(p => `"${p}"`).join(', ')}`);
+      } else if (cleanedProductTexts.length > 0) {
+        console.log(`[${store.storeName}] 🔍 No matches. Sample products: ${cleanedProductTexts.slice(0, 8).map(p => `"${p}"`).join(', ')}`);
+      }
     } else {
-      console.log(`[${store.storeName}] ❌ No selector matched after trying all options`);
+      console.log(`[${store.storeName}] ⚠️  No product texts found - cannot match`);
       hasProducts = false;
     }
 

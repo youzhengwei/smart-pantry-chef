@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { 
@@ -23,6 +22,7 @@ interface ProductSearchResult {
   price: string;
   measurement: string;
   link: string;
+  hasItem: boolean;
 }
 
 interface StoreResult {
@@ -54,6 +54,14 @@ const StoreLocator: React.FC = () => {
   const [distanceFilter, setDistanceFilter] = useState('all');
   const [ratingFilter, setRatingFilter] = useState('all');
   const [selectedMapStore, setSelectedMapStore] = useState<NearbyStore | null>(null);
+  const [selectedDestination, setSelectedDestination] = useState<{
+    lat: number;
+    lng: number;
+    name?: string;
+    address?: string;
+    rating?: number;
+    isOpen?: boolean;
+  } | null>(null);
   const [showMapModal, setShowMapModal] = useState(false);
 
   // Product search state
@@ -501,6 +509,7 @@ const StoreLocator: React.FC = () => {
   const openInGoogleMaps = (store: NearbyStore) => {
     // Set the store for modal and show map
     setSelectedMapStore(store);
+    setSelectedDestination(null);
     setShowMapModal(true);
   };
 
@@ -511,22 +520,43 @@ const StoreLocator: React.FC = () => {
     'sheng-siong': 'Sheng Siong',
   };
 
+  // Clean search query by removing quantities and units
+  const cleanSearchQuery = (query: string): string => {
+    // Remove common quantity and unit patterns from the query
+    let cleaned = query.trim();
+    
+    // Remove leading/trailing quantities and units
+    cleaned = cleaned.replace(/^\d+(\.\d+)?\s*(kg|kilogram|g|gram|mg|l|liter|ml|pack|packs|pc|pcs|piece|pieces|box|boxes|bottle|bottles|can|cans|oz|lb|lbs)\b/i, '').trim();
+    cleaned = cleaned.replace(/\b\d+(\.\d+)?\s*(kg|kilogram|g|gram|mg|l|liter|ml|pack|packs|pc|pcs|piece|pieces|box|boxes|bottle|bottles|can|cans|oz|lb|lbs)$/i, '').trim();
+    
+    // Remove quantities at the start (e.g., "1 nuts" -> "nuts")
+    cleaned = cleaned.replace(/^\d+\s+/, '').trim();
+    
+    return cleaned || query; // Return original if cleaning removes everything
+  };
+
   // Search for products using the backend
   const searchProducts = async (query: string) => {
     setProductSearchLoading(true);
+    
+    // Clean the query before searching
+    const cleanedQuery = cleanSearchQuery(query);
+    console.log('Original query:', query);
+    console.log('Cleaned query:', cleanedQuery);
+    
     try {
-      // Use local proxy to avoid CORS issues
-      const proxyUrl = 'http://localhost:3000/api/search-products';
+      // Use local scraper endpoint for stricter matching
+      const proxyUrl = 'http://localhost:3000/search-products';
 
       console.log('searchProducts - Fetching from proxy:', proxyUrl);
-      console.log('searchProducts - Query:', query);
+      console.log('searchProducts - Query:', cleanedQuery);
 
       const response = await fetch(proxyUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query: cleanedQuery }),
       });
 
       console.log('searchProducts - Response status:', response.status);
@@ -563,13 +593,19 @@ const StoreLocator: React.FC = () => {
         );
       }
       
+      console.log('searchProducts - Results count:', data.results.length);
+      data.results.forEach((r: StoreResult, idx: number) => {
+        console.log(`  [${idx}] ${r.storeName}: hasItem=${r.hasItem}`);
+      });
+      
       // Transform StoreResult[] to ProductSearchResult[] for compatibility
       const results: ProductSearchResult[] = data.results.map((store: StoreResult) => ({
         supermarket: store.storeName,
-        title: `Available at ${store.storeName}`,
-        price: store.hasItem ? 'In Stock' : 'Out of Stock',
+        title: `${store.hasItem ? 'Available' : 'Not available'} at ${store.storeName}`,
+        price: store.hasItem ? 'In Stock' : '',
         measurement: '',
         link: store.url,
+        hasItem: store.hasItem,
       }));
 
       console.log('searchProducts - Transformed results:', results);
@@ -604,9 +640,24 @@ const StoreLocator: React.FC = () => {
 
   // Handle N8N webhook search for store availability
   const handleFindClick = async () => {
-    // Validate query is not empty
-    if (!webhookQuery.trim()) {
+    const trimmedQuery = webhookQuery.trim();
+    if (!trimmedQuery) {
       setWebhookError('Please enter a product name');
+      return;
+    }
+
+    // Clean the query to remove quantities and units
+    const cleanedQuery = cleanSearchQuery(trimmedQuery);
+    console.log('Original query:', trimmedQuery);
+    console.log('Cleaned query for search:', cleanedQuery);
+
+    if (cleanedQuery.length < 2) {
+      setWebhookError('Please enter at least 2 characters for a reliable search');
+      return;
+    }
+
+    if (!/[a-zA-Z]/.test(cleanedQuery)) {
+      setWebhookError('Please include letters in your search');
       return;
     }
 
@@ -615,18 +666,18 @@ const StoreLocator: React.FC = () => {
     setWebhookResults([]);
 
     try {
-      // Use local proxy to avoid CORS issues
-      const proxyUrl = 'http://localhost:3000/api/search-products';
+      // Use local scraper endpoint for stricter matching
+      const proxyUrl = 'http://localhost:3000/search-products';
       
       console.log('Fetching from proxy:', proxyUrl);
-      console.log('Query:', webhookQuery);
+      console.log('Query:', cleanedQuery);
       
       const res = await fetch(proxyUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query: webhookQuery }),
+        body: JSON.stringify({ query: cleanedQuery }),
       });
 
       console.log('Response status:', res.status);
@@ -661,6 +712,11 @@ const StoreLocator: React.FC = () => {
           `Full response: ${JSON.stringify(data)}`
         );
       }
+      
+      console.log('Webhook - Results count:', data.results.length);
+      data.results.forEach((r: StoreResult, idx: number) => {
+        console.log(`  [${idx}] ${r.storeName}: hasItem=${r.hasItem}`);
+      });
       
       const results: StoreResult[] = data.results;
       setWebhookResults(results);
@@ -697,6 +753,7 @@ const StoreLocator: React.FC = () => {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
+        setUserLocation({ lat: latitude, lng: longitude });
         console.log('User location:', latitude, longitude);
         console.log('Searching for:', chainName);
 
@@ -714,6 +771,56 @@ const StoreLocator: React.FC = () => {
           document.createElement('div')
         );
 
+        const openDestination = (place: google.maps.places.PlaceResult, fallbackLabel?: string) => {
+          const dest = place.geometry?.location;
+          if (!dest) {
+            toast({
+              title: 'Location error',
+              description: 'Could not get store location.',
+              variant: 'destructive',
+            });
+            return;
+          }
+
+          const isOpen = typeof place.opening_hours?.isOpen === 'function'
+            ? place.opening_hours.isOpen()
+            : place.opening_hours?.open_now;
+
+          setSelectedDestination({
+            lat: dest.lat(),
+            lng: dest.lng(),
+            name: place.name || fallbackLabel || chainName,
+            address: place.vicinity,
+            rating: place.rating,
+            isOpen,
+          });
+          setSelectedMapStore(null);
+          setShowMapModal(true);
+        };
+
+        const fallbackToNearestSupermarket = () => {
+          const fallbackRequest = {
+            location: new google.maps.LatLng(latitude, longitude),
+            rankBy: google.maps.places.RankBy.DISTANCE,
+            type: 'supermarket',
+          } as const;
+
+          service.nearbySearch(
+            fallbackRequest,
+            (fallbackResults: google.maps.places.PlaceResult[] | null, fallbackStatus: google.maps.places.PlacesServiceStatus) => {
+              if (fallbackStatus === google.maps.places.PlacesServiceStatus.OK && fallbackResults && fallbackResults.length > 0) {
+                openDestination(fallbackResults[0], 'Nearest supermarket');
+              } else {
+                toast({
+                  title: 'No nearby stores found',
+                  description: 'Unable to locate a nearby store right now.',
+                  variant: 'destructive',
+                });
+              }
+            }
+          );
+        };
+
         const request = {
           location: new google.maps.LatLng(latitude, longitude),
           rankBy: google.maps.places.RankBy.DISTANCE,
@@ -725,27 +832,22 @@ const StoreLocator: React.FC = () => {
           request,
           (results: google.maps.places.PlaceResult[] | null, status: google.maps.places.PlacesServiceStatus) => {
             if (status !== google.maps.places.PlacesServiceStatus.OK || !results || results.length === 0) {
-              toast({
-                title: 'No nearby store found',
-                description: `Could not find ${chainName} near your location.`,
-                variant: 'destructive',
-              });
+              fallbackToNearestSupermarket();
               return;
             }
 
-            const nearest = results[0];
-            const dest = nearest.geometry?.location;
-            if (!dest) {
+            const normalizedChain = chainName.toLowerCase();
+            const brandMatches = results.filter((place) => (place.name || '').toLowerCase().includes(normalizedChain));
+            const chosen = brandMatches[0] || results[0];
+
+            if (!brandMatches.length) {
               toast({
-                title: 'Location error',
-                description: 'Could not get store location.',
-                variant: 'destructive',
+                title: 'Exact store not nearby',
+                description: `No ${chainName} found nearby. Showing the closest supermarket instead.`,
               });
-              return;
             }
 
-            const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${latitude},${longitude}&destination=${dest.lat()},${dest.lng()}&destination_place_id=${nearest.place_id}`;
-            window.open(mapsUrl, '_blank');
+            openDestination(chosen);
           }
         );
       },
@@ -989,40 +1091,7 @@ const StoreLocator: React.FC = () => {
                 </div>
               )}
 
-              {/* Show nearest stores if location is available */}
-              {userLocation && filteredNearbyStores.length > 0 && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <h3 className="font-semibold text-sm text-green-900 mb-2">Nearest stores with this product:</h3>
-                  <div className="space-y-2">
-                    {filteredNearbyStores.slice(0, 3).map((store, idx) => {
-                      const distance = calculateDistance(
-                        userLocation.lat,
-                        userLocation.lng,
-                        store.location.latitude,
-                        store.location.longitude
-                      );
-                      return (
-                        <div key={idx} className="flex items-center justify-between p-2 bg-white rounded border">
-                          <div>
-                            <p className="text-sm font-medium">{store.displayName.text}</p>
-                            <p className="text-xs text-gray-600">{distance.toFixed(1)} km away</p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              const url = `https://www.google.com/maps/dir/?api=1&destination=${store.location.latitude},${store.location.longitude}`;
-                              window.open(url, '_blank');
-                            }}
-                          >
-                            <Navigation className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              {/* Removed nearest stores summary to simplify product section */}
             </div>
           )}
         </CardContent>
@@ -1049,15 +1118,19 @@ const StoreLocator: React.FC = () => {
                   <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
                     <div>
                       <p className="font-medium">{product.title}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {product.price} {product.measurement && `• ${product.measurement}`}
-                      </p>
+                      {product.hasItem && product.price && (
+                        <p className="text-sm text-muted-foreground">
+                          {product.price} {product.measurement && `• ${product.measurement}`}
+                        </p>
+                      )}
                     </div>
-                    {product.link && (
-                      <Button size="sm" variant="outline" asChild>
-                        <a href={product.link} target="_blank" rel="noopener noreferrer">
-                          View
-                        </a>
+                    {product.hasItem && product.link && (
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => handleFindNearestStore(product.supermarket)}
+                      >
+                        Find nearest store
                       </Button>
                     )}
                   </div>
@@ -1119,167 +1192,59 @@ const StoreLocator: React.FC = () => {
           )}
         </div>
 
-        {/* Right Column: Stores with Item or Stores near me */}
+        {/* Right Column: Nearby Stores */}
         <div className="space-y-4">
           <h2 className="font-display text-xl font-semibold">
-            {chainsWithItem.length > 0 ? `Stores with "${initialSearch || 'item'}"` : 'Stores near me'}
+            Nearby Stores & Supermarkets
           </h2>
-          {chainsWithItem.length > 0 ? (
-            Object.keys(nearestByChain).length > 0 ? (
-              <div className="grid gap-4 sm:grid-cols-1">
-                {chainsWithItem.map((chainId) => {
-                  const store = nearestByChain[chainId];
-                  const displayName = CHAIN_DISPLAY_NAME[chainId] || chainId;
-
-                  if (!store) return null;
-
-                  const distance = calculateDistance(
-                    userLocation?.lat || 0,
-                    userLocation?.lng || 0,
-                    store.location.latitude,
-                    store.location.longitude
-                  );
-
-                  // Convert to NearbyStore format for StoreCard
-                  const nearbyStore: NearbyStore = {
-                    displayName: { text: store.displayName?.text || displayName },
-                    formattedAddress: store.formattedAddress || '',
-                    location: {
-                      latitude: store.location.latitude,
-                      longitude: store.location.longitude
-                    },
-                    rating: store.rating,
-                    currentOpeningHours: store.currentOpeningHours
-                  };
-
-                  return (
-                    <StoreCard
-                      key={`chain-${chainId}`}
-                      store={nearbyStore}
-                      userLocation={userLocation}
-                      onNavigate={openInGoogleMaps}
-                    />
-                  );
-                })}
-              </div>
-            ) : (
-              <Card className="magnet-card">
-                <CardContent className="flex flex-col items-center justify-center py-8">
-                  <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground text-center">
-                    {userLocation ? 'Finding stores with this item...' : 'Use your location to find stores with this item'}
-                  </p>
-                </CardContent>
-              </Card>
-            )
+          {filteredNearbyStores.length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-1">
+              {filteredNearbyStores.map((store, idx) => (
+                <StoreCard
+                  key={`nearby-${idx}`}
+                  store={store}
+                  userLocation={userLocation}
+                  onNavigate={openInGoogleMaps}
+                />
+              ))}
+            </div>
           ) : (
-            filteredNearbyStores.length > 0 ? (
-              <div className="grid gap-4 sm:grid-cols-1">
-                {filteredNearbyStores.map((store, idx) => (
-                  <StoreCard
-                    key={`nearby-${idx}`}
-                    store={store}
-                    userLocation={userLocation}
-                    onNavigate={openInGoogleMaps}
-                  />
-                ))}
-              </div>
-            ) : (
-              <Card className="magnet-card">
-                <CardContent className="flex flex-col items-center justify-center py-8">
-                  <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground text-center">
-                    {nearbyError ? nearbyError : 'Use your location to find nearby stores'}
-                  </p>
-                </CardContent>
-              </Card>
-            )
+            <Card className="magnet-card">
+              <CardContent className="flex flex-col items-center justify-center py-8">
+                <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground text-center">
+                  {nearbyError
+                    ? nearbyError
+                    : userLocation
+                      ? 'No nearby stores found'
+                      : 'Click "Find Stores Near Me" to discover nearby supermarkets'}
+                </p>
+              </CardContent>
+            </Card>
           )}
         </div>
       </div>
 
       {/* In-App Map Modal with Detailed Directions */}
-      {selectedMapStore && (
+      {showMapModal && (selectedMapStore || selectedDestination) && (
         <InAppMap
           isOpen={showMapModal}
-          onClose={() => setShowMapModal(false)}
-          destination={{
+          onClose={() => {
+            setShowMapModal(false);
+            setSelectedMapStore(null);
+            setSelectedDestination(null);
+          }}
+          destination={selectedDestination || (selectedMapStore ? {
             lat: selectedMapStore.location.latitude,
             lng: selectedMapStore.location.longitude,
             name: selectedMapStore.displayName.text,
             address: selectedMapStore.formattedAddress,
             rating: selectedMapStore.rating,
             isOpen: selectedMapStore.currentOpeningHours?.openNow
-          }}
+          } : undefined)}
           origin={userLocation ?? undefined}
         />
       )}
-
-      {/* Map Modal */}
-      <Dialog open={showMapModal} onOpenChange={setShowMapModal}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              {selectedMapStore?.displayName.text}
-            </DialogTitle>
-          </DialogHeader>
-          
-          {selectedMapStore && (
-            <div className="space-y-4">
-              {/* Store Info */}
-              <div className="rounded-lg border p-4 bg-muted/50">
-                <p className="text-sm text-foreground mb-2">
-                  <strong>Address:</strong> {selectedMapStore.formattedAddress}
-                </p>
-                {selectedMapStore.rating && (
-                  <p className="text-sm text-foreground mb-2">
-                    <strong>Rating:</strong> ⭐ {selectedMapStore.rating}
-                  </p>
-                )}
-                {selectedMapStore.currentOpeningHours?.openNow !== undefined && (
-                  <p className="text-sm text-foreground">
-                    <strong>Status:</strong>{' '}
-                    <Badge variant={selectedMapStore.currentOpeningHours.openNow ? 'default' : 'secondary'} className="ml-1">
-                      {selectedMapStore.currentOpeningHours.openNow ? 'Open now' : 'Closed'}
-                    </Badge>
-                  </p>
-                )}
-              </div>
-
-              {/* Embedded Map */}
-              <div className="rounded-lg overflow-hidden border">
-                <iframe
-                  title={selectedMapStore.displayName.text}
-                  width="100%"
-                  height="500"
-                  frameBorder={0}
-                  src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_PLACES_API_KEY}&q=${encodeURIComponent(selectedMapStore.displayName.text)}+${encodeURIComponent(selectedMapStore.formattedAddress)}`}
-                  allowFullScreen
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                />
-              </div>
-
-              {/* Directions Link */}
-              <div className="flex gap-2">
-                <Button 
-                  className="flex-1"
-                  onClick={() => {
-                    const origin = userLocation ? `${userLocation.lat},${userLocation.lng}` : '';
-                    const destination = `${selectedMapStore.location.latitude},${selectedMapStore.location.longitude}`;
-                    const url = `https://www.google.com/maps/dir/${origin}/${destination}`;
-                    window.open(url, '_blank');
-                  }}
-                >
-                  <Navigation className="mr-2 h-4 w-4" />
-                  Get Directions (Opens Google Maps)
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

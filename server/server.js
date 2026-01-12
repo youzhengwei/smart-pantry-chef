@@ -426,6 +426,12 @@ app.post('/api/search-products', async (req, res) => {
 
     const data = await response.json();
     console.log('N8N Success response:', JSON.stringify(data, null, 2));
+    console.log('N8N Response results count:', data.results?.length || 0);
+    if (data.results && Array.isArray(data.results)) {
+      data.results.forEach((result, idx) => {
+        console.log(`  [${idx}] ${result.storeName}: hasItem=${result.hasItem}`);
+      });
+    }
     console.log('==========================');
     
     res.json(data);
