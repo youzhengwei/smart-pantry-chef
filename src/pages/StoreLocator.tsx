@@ -24,9 +24,20 @@ interface ProductSearchResult {
   measurement: string;
   link: string;
 }
+
+interface StoreResult {
+  storeName: string;
+  storeCode: string;
+  url: string;
+  hasItem: boolean;
+}
+
 import StoreCard from '@/components/StoreCard';
 import Filters from '@/components/Filters';
 import InAppMap from '@/components/InAppMap';
+
+// Environment variables
+const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL;
 
 const StoreLocator: React.FC = () => {
   const location = useLocation();
@@ -50,6 +61,12 @@ const StoreLocator: React.FC = () => {
   const [chainsWithItem, setChainsWithItem] = useState<string[]>([]);
   const [nearestByChain, setNearestByChain] = useState<Record<string, NearbyStore | null>>({});
   const [productSearchLoading, setProductSearchLoading] = useState(false);
+
+  // N8N webhook search state
+  const [webhookQuery, setWebhookQuery] = useState('');
+  const [webhookLoading, setWebhookLoading] = useState(false);
+  const [webhookError, setWebhookError] = useState<string | null>(null);
+  const [webhookResults, setWebhookResults] = useState<StoreResult[]>([]);
 
   // Get initial search from navigation state
   const initialSearch = (location.state as { searchItem?: string })?.searchItem || '';
@@ -545,6 +562,55 @@ const StoreLocator: React.FC = () => {
     }
   };
 
+  // Handle N8N webhook search for store availability
+  const handleFindClick = async () => {
+    // Validate query is not empty
+    if (!webhookQuery.trim()) {
+      setWebhookError('Please enter a product name');
+      return;
+    }
+
+    // Check if N8N webhook URL is configured
+    if (!N8N_WEBHOOK_URL) {
+      console.error('N8N_WEBHOOK_URL environment variable is not configured');
+      setWebhookError('Product search service is not configured');
+      return;
+    }
+
+    setWebhookLoading(true);
+    setWebhookError(null);
+    setWebhookResults([]);
+
+    try {
+      const response = await fetch(N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: webhookQuery }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Search failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const results: StoreResult[] = data.results || [];
+      setWebhookResults(results);
+
+      if (results.length === 0) {
+        setWebhookError(`No results found for "${webhookQuery}"`);
+      }
+    } catch (error) {
+      console.error('Webhook search error:', error);
+      setWebhookError(
+        error instanceof Error ? error.message : 'Failed to search for products. Please try again.'
+      );
+    } finally {
+      setWebhookLoading(false);
+    }
+  };
+
   // Find nearest stores for chains using Google Places
   const findNearestStoresForChains = async (chains: string[], userLatLng: { lat: number; lng: number }) => {
     const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
@@ -681,6 +747,79 @@ const StoreLocator: React.FC = () => {
           <p className="text-sm text-destructive">{nearbyError}</p>
         )}
       </div>
+
+      {/* Webhook Product Search Card */}
+      <Card className="magnet-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 font-display">
+            <ShoppingCart className="h-5 w-5" />
+            Find Product at Stores
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Input
+              placeholder="Search for a product..."
+              value={webhookQuery}
+              onChange={(e) => {
+                setWebhookQuery(e.target.value);
+                setWebhookError(null);
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && handleFindClick()}
+            />
+            <Button 
+              onClick={handleFindClick} 
+              disabled={webhookLoading}
+            >
+              {webhookLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              <span className="ml-2">Find</span>
+            </Button>
+          </div>
+
+          {webhookLoading && (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-primary mr-2" />
+              <span>Searching stores...</span>
+            </div>
+          )}
+
+          {webhookError && (
+            <div className="p-4 bg-destructive/10 text-destructive rounded-lg">
+              {webhookError}
+            </div>
+          )}
+
+          {webhookResults.length > 0 && (
+            <div className="space-y-2">
+              {webhookResults.map((result, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <p className="font-semibold">{result.storeName}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant={result.hasItem ? 'default' : 'secondary'}>
+                        {result.hasItem ? 'Has item' : 'Not found'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    asChild
+                  >
+                    <a href={result.url} target="_blank" rel="noopener noreferrer">
+                      Open store page
+                    </a>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Product Search Results */}
       {initialSearch && (
