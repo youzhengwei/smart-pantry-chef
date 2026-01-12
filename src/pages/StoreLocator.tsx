@@ -538,8 +538,26 @@ const StoreLocator: React.FC = () => {
 
       const data = await response.json();
       console.log('searchProducts - Response data:', data);
-      const results: ProductSearchResult[] = data.results || [];
+      console.log('searchProducts - data.results type:', typeof data.results);
+      
+      // Validate that results is an array
+      if (!Array.isArray(data.results)) {
+        console.error('Invalid response format from n8n. Expected results array, got:', typeof data.results, data.results);
+        throw new Error(
+          `Invalid response format from n8n. Expected results array, got: ${typeof data.results}`
+        );
+      }
+      
+      // Transform StoreResult[] to ProductSearchResult[] for compatibility
+      const results: ProductSearchResult[] = data.results.map((store: StoreResult) => ({
+        supermarket: store.storeName,
+        title: `Available at ${store.storeName}`,
+        price: store.hasItem ? 'In Stock' : 'Out of Stock',
+        measurement: '',
+        link: store.url,
+      }));
 
+      console.log('searchProducts - Transformed results:', results);
       setProductResults(results);
 
       // Extract unique chains that have this item
@@ -605,8 +623,16 @@ const StoreLocator: React.FC = () => {
 
       const data = await res.json();
       console.log('Webhook response data:', data);
+      console.log('Webhook response data.results type:', typeof data.results);
+      console.log('Webhook response data.results:', data.results);
       
-      const results: StoreResult[] = data.results || [];
+      // Validate that results is an array
+      if (!data.results || typeof data.results === 'string' || !Array.isArray(data.results)) {
+        console.error('Invalid response format from n8n. Expected array, got:', typeof data.results, data.results);
+        throw new Error('Invalid response from search service. The n8n workflow output is not configured correctly. Please check the "Respond to Webhook" node.');
+      }
+      
+      const results: StoreResult[] = data.results;
       setWebhookResults(results);
 
       if (results.length === 0) {
