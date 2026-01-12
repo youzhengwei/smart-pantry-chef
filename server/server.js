@@ -391,6 +391,45 @@ app.get('/stores', (req, res) => {
   });
 });
 
+// POST /api/search-products - Proxy for n8n webhook to avoid CORS issues
+app.post('/api/search-products', async (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (!query) {
+      return res.status(400).json({ error: 'Query parameter is required' });
+    }
+
+    const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || 'https://n8ngc.codeblazar.org/webhook/search-products';
+    
+    console.log('Proxying request to n8n:', n8nWebhookUrl);
+    console.log('Query:', query);
+
+    const response = await fetch(n8nWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`N8N webhook failed: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('N8N response:', data);
+    
+    res.json(data);
+  } catch (error) {
+    console.error('N8N proxy error:', error);
+    res.status(500).json({ 
+      error: 'Failed to search products',
+      details: error.message 
+    });
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
