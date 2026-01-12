@@ -1,0 +1,99 @@
+// Test balanced matching logic
+function cleanProductName(text) {
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  const quantityUnitPattern = /^\s*\d+(\.\d+)?\s*[x×X]?\s*\d*(\.\d+)?\s*(kg|kilogram|g|gram|mg|milligram|oz|ounce|ml|milliliter|l|liter|cl|centiliter|fl\s*oz|pack|packs|pc|pcs|piece|pieces|each|ea|box|boxes|bottle|bottles|can|cans|jar|jars|lb|lbs|pound|pounds)\b/i;
+
+  let cleaned = '';
+  for (const line of lines) {
+    if (!quantityUnitPattern.test(line)) {
+      if (cleaned) {
+        cleaned += ' ' + line;
+      } else {
+        cleaned = line;
+      }
+    }
+  }
+  
+  if (!cleaned) {
+    cleaned = text.trim();
+    cleaned = cleaned.replace(/^\s*\d+(\.\d+)?\s*[x×X]?\s*\d*(\.\d+)?\s*(kg|kilogram|g|gram|mg|milligram|oz|ounce|ml|milliliter|l|liter|cl|centiliter|fl\s*oz|pack|packs|pc|pcs|piece|pieces|each|ea|box|boxes|bottle|bottles|can|cans|jar|jars|lb|lbs|pound|pounds)\s+/i, '').trim();
+  }
+  
+  return cleaned;
+}
+
+const normalize = (str) => str
+  .toLowerCase()
+  .replace(/[^a-z0-9\s]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+function testMatching(query, productTexts) {
+  const queryNorm = normalize(query).trim();
+  const queryWords = queryNorm.split(' ').filter(w => w.length > 0);
+
+  console.log(`\n🔍 Search Query: "${query}"`);
+  console.log(`📝 Query Words: [${queryWords.join(', ')}]\n`);
+
+  const cleanedProductTexts = productTexts.map(text => cleanProductName(text));
+
+  const matched = queryWords.length === 0 ? [] : cleanedProductTexts.filter((productName) => {
+    const productNorm = normalize(productName);
+    const productWords = productNorm.split(' ');
+    
+    const isMatch = queryWords.every(queryWord => {
+      // Check exact word match first
+      if (productWords.includes(queryWord)) {
+        return true;
+      }
+      
+      // Check plural/singular variations
+      if (productWords.includes(queryWord + 's') || 
+          productWords.includes(queryWord.replace(/s$/, ''))) {
+        return true;
+      }
+      
+      // Check if any product word contains the query word (for compound words)
+      // But only if query word is 4+ characters
+      if (queryWord.length >= 4) {
+        return productWords.some(pw => pw.includes(queryWord));
+      }
+      
+      return false;
+    });
+    
+    console.log(`  ${isMatch ? '✓' : '✗'} "${productName}" -> words: [${productWords.join(', ')}]`);
+    return isMatch;
+  });
+
+  console.log(`\n✅ Matched: ${matched.length}/${productTexts.length}`);
+  if (matched.length > 0) {
+    console.log(`📌 Results: ${matched.join(', ')}`);
+  }
+}
+
+// Test with various product formats
+const testProducts = [
+  '1kg Fresh Milk',
+  'Full Cream Milk\n1L',
+  'Almond Milk 500ml',
+  'Soy Milk',
+  'Chocolate Milk',
+  '200g Mixed Nuts',
+  'Cashew Nuts Premium\n250g',
+  'Roasted Peanuts',
+  'Honey',
+  'Butter',
+  'Cheese',
+  '1kg Rice',
+  'Olive Oil 500ml',
+  'Coconut Milk',
+  'Nutella Spread'
+];
+
+console.log('========== BALANCED MATCHING TEST ==========');
+testMatching('milk', testProducts);
+testMatching('nuts', testProducts);
+testMatching('nut', testProducts);
+testMatching('chocolate', testProducts);
+testMatching('rice', testProducts);
