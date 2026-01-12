@@ -37,7 +37,7 @@ import Filters from '@/components/Filters';
 import InAppMap from '@/components/InAppMap';
 
 // Environment variables
-const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL;
+const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL as string | undefined;
 
 const StoreLocator: React.FC = () => {
   const location = useLocation();
@@ -572,8 +572,8 @@ const StoreLocator: React.FC = () => {
 
     // Check if N8N webhook URL is configured
     if (!N8N_WEBHOOK_URL) {
-      console.error('N8N_WEBHOOK_URL environment variable is not configured');
-      setWebhookError('Product search service is not configured');
+      console.error('N8N_WEBHOOK_URL is not set in the environment');
+      setWebhookError('Search service is not configured. Please contact support.');
       return;
     }
 
@@ -582,7 +582,7 @@ const StoreLocator: React.FC = () => {
     setWebhookResults([]);
 
     try {
-      const response = await fetch(N8N_WEBHOOK_URL, {
+      const res = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -590,11 +590,11 @@ const StoreLocator: React.FC = () => {
         body: JSON.stringify({ query: webhookQuery }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Search failed: ${response.status}`);
+      if (!res.ok) {
+        throw new Error(`Search failed: ${res.status}`);
       }
 
-      const data = await response.json();
+      const data = await res.json();
       const results: StoreResult[] = data.results || [];
       setWebhookResults(results);
 
@@ -602,10 +602,8 @@ const StoreLocator: React.FC = () => {
         setWebhookError(`No results found for "${webhookQuery}"`);
       }
     } catch (error) {
-      console.error('Webhook search error:', error);
-      setWebhookError(
-        error instanceof Error ? error.message : 'Failed to search for products. Please try again.'
-      );
+      console.error('Product store search failed', error);
+      setWebhookError('Search failed. Please try again in a moment.');
     } finally {
       setWebhookLoading(false);
     }
