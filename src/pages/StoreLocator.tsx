@@ -570,22 +570,18 @@ const StoreLocator: React.FC = () => {
       return;
     }
 
-    // Check if N8N webhook URL is configured
-    if (!N8N_WEBHOOK_URL) {
-      console.error('N8N_WEBHOOK_URL is not set in the environment');
-      setWebhookError('Search service is not configured. Please contact support.');
-      return;
-    }
-
     setWebhookLoading(true);
     setWebhookError(null);
     setWebhookResults([]);
 
     try {
-      console.log('Fetching from N8N webhook:', N8N_WEBHOOK_URL);
+      // Use local proxy to avoid CORS issues
+      const proxyUrl = 'http://localhost:3000/api/search-products';
+      
+      console.log('Fetching from proxy:', proxyUrl);
       console.log('Query:', webhookQuery);
       
-      const res = await fetch(N8N_WEBHOOK_URL, {
+      const res = await fetch(proxyUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -596,7 +592,8 @@ const StoreLocator: React.FC = () => {
       console.log('Response status:', res.status);
 
       if (!res.ok) {
-        throw new Error(`Search failed: ${res.status} ${res.statusText}`);
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.details || `Search failed: ${res.status} ${res.statusText}`);
       }
 
       const data = await res.json();
