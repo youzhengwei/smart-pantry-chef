@@ -515,10 +515,13 @@ const StoreLocator: React.FC = () => {
   const searchProducts = async (query: string) => {
     setProductSearchLoading(true);
     try {
-      // Use environment variable or fallback to local development server
-      const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:3000/search-products';
+      // Use local proxy to avoid CORS issues
+      const proxyUrl = 'http://localhost:3000/api/search-products';
 
-      const response = await fetch(n8nWebhookUrl, {
+      console.log('searchProducts - Fetching from proxy:', proxyUrl);
+      console.log('searchProducts - Query:', query);
+
+      const response = await fetch(proxyUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -526,11 +529,15 @@ const StoreLocator: React.FC = () => {
         body: JSON.stringify({ query }),
       });
 
+      console.log('searchProducts - Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error(`Product search failed: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.details || `Product search failed: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log('searchProducts - Response data:', data);
       const results: ProductSearchResult[] = data.results || [];
 
       setProductResults(results);

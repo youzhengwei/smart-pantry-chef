@@ -402,8 +402,10 @@ app.post('/api/search-products', async (req, res) => {
 
     const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || 'https://n8ngc.codeblazar.org/webhook/search-products';
     
-    console.log('Proxying request to n8n:', n8nWebhookUrl);
+    console.log('==== N8N Proxy Request ====');
+    console.log('Target URL:', n8nWebhookUrl);
     console.log('Query:', query);
+    console.log('Request body:', JSON.stringify({ query }));
 
     const response = await fetch(n8nWebhookUrl, {
       method: 'POST',
@@ -413,12 +415,18 @@ app.post('/api/search-products', async (req, res) => {
       body: JSON.stringify({ query }),
     });
 
+    console.log('N8N Response status:', response.status, response.statusText);
+    console.log('N8N Response headers:', Object.fromEntries(response.headers.entries()));
+
     if (!response.ok) {
-      throw new Error(`N8N webhook failed: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('N8N Error response:', errorText);
+      throw new Error(`N8N webhook failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('N8N response:', data);
+    console.log('N8N Success response:', JSON.stringify(data, null, 2));
+    console.log('==========================');
     
     res.json(data);
   } catch (error) {
