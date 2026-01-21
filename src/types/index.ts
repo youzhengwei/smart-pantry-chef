@@ -33,6 +33,12 @@ export interface InventoryItem {
   reorderThreshold: number;
   isLowStock: boolean;
   status: 'fresh' | 'expiringSoon' | 'almostExpired';
+  // New fields for AI integration
+  source: 'manual' | 'ai' | 'openfoodfacts' | 'system';  // Track origin
+  imageUrl?: string;  // Firebase Storage download URL from the upload
+  aiConfidence?: number;  // AI confidence score (0-1), optional
+  batchId?: string;  // UUID or timestamp for grouping items from one photo
+  createdAt?: Timestamp;  // Add if not present, for sorting/filtering
 }
 
 export interface Recipe {
@@ -70,6 +76,7 @@ export interface AIGeneratedRecipe {
   cookingTime: string;
   difficulty: 'easy' | 'medium' | 'hard';
   servings: number;
+  servingSize?: string;  // Optional descriptive serving size, e.g., "4 people" or "serves 4"
   isFavourite: boolean;
   createdAt: Timestamp;
   source: string;
