@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchFavourites, addManualRecipe } from '@/services/aiRecipeService';
+import { fetchSavedRecipes, addManualRecipe } from '@/services/aiRecipeService';
 import { AIGeneratedRecipe } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import RecipeCard from '@/components/RecipeCard';
@@ -44,13 +44,16 @@ const Favourites: React.FC = () => {
 
     setLoading(true);
     try {
-      const favouriteRecipes = await fetchFavourites(user.uid);
-      setFavourites(favouriteRecipes);
+      console.log('Loading saved recipes for user:', user.uid);
+      const savedRecipes = await fetchSavedRecipes(user.uid);
+      console.log('Loaded saved recipes:', savedRecipes);
+      setFavourites(savedRecipes);
     } catch (error) {
-      console.error('Error loading favourites:', error);
+      console.error('Error loading saved recipes:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       toast({
         title: 'Error',
-        description: 'Failed to load favourite recipes.',
+        description: `Failed to load saved recipes: ${errorMessage}`,
         variant: 'destructive',
       });
     } finally {
