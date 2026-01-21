@@ -13,9 +13,11 @@ import { cn } from '@/lib/utils';
 interface RecipeCardProps {
   recipe: AIGeneratedRecipe;
   onFavouriteChange?: (recipeId: string, isFavourite: boolean) => void;
+  isSaved?: boolean;
+  onSaveToggle?: (recipeId: string) => void;
 }
 
-const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onFavouriteChange }) => {
+const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onFavouriteChange, isSaved, onSaveToggle }) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [togglingFavourite, setTogglingFavourite] = useState(false);
@@ -69,16 +71,24 @@ const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onFavouriteChange }) =>
               </div>
             )}
 
-            {/* Favorite Button Overlay */}
+            {/* Favorite / Saved Button Overlay */}
             <button
-              onClick={handleToggleFavourite}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (onSaveToggle) {
+                  onSaveToggle(recipe.id!);
+                } else {
+                  handleToggleFavourite(e as any);
+                }
+              }}
               disabled={togglingFavourite}
               className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 rounded-full p-2 transition-colors"
             >
               <Heart
                 className={cn(
                   'h-5 w-5 transition-colors',
-                  recipe.isFavourite ? 'fill-red-500 text-red-500' : 'text-white'
+                  (recipe.isFavourite || isSaved) ? 'fill-red-500 text-red-500' : 'text-white'
                 )}
               />
             </button>
@@ -177,13 +187,16 @@ const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onFavouriteChange }) =>
 
           {/* Favorite Button */}
           <Button
-            onClick={handleToggleFavourite}
+            onClick={() => {
+              if (onSaveToggle) onSaveToggle(recipe.id!);
+              else handleToggleFavourite({ preventDefault() {}, stopPropagation() {} } as any);
+            }}
             disabled={togglingFavourite}
-            variant={recipe.isFavourite ? 'default' : 'outline'}
+            variant={(recipe.isFavourite || isSaved) ? 'destructive' : 'default'}
             className="w-full gap-2"
           >
-            <Heart className={cn('h-4 w-4', recipe.isFavourite && 'fill-current')} />
-            {recipe.isFavourite ? 'Saved' : 'Save Recipe'}
+            <Heart className={cn('h-4 w-4', (recipe.isFavourite || isSaved) && 'fill-current')} />
+            {(recipe.isFavourite || isSaved) ? 'Unsave Recipe' : 'Save Recipe'}
           </Button>
         </div>
       </DialogContent>

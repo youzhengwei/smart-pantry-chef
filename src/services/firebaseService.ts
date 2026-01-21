@@ -161,6 +161,21 @@ export const getRecipeAI = async (recipeId: string): Promise<RecipeAI | null> =>
   } as RecipeAI;
 };
 
+export const getRecipeById = async (recipeId: string): Promise<Recipe | null> => {
+  try {
+    const docRef = doc(db, 'recipes', recipeId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    return {
+      id: snap.id,
+      ...snap.data()
+    } as Recipe;
+  } catch (e) {
+    console.error('[getRecipeById] error', e);
+    return null;
+  }
+};
+
 export const getRecommendedRecipes = async (userId: string): Promise<RecipeWithScore[]> => {
   // Get user's inventory
   const inventory = await getInventory(userId);
@@ -252,6 +267,14 @@ export const getSavedRecipes = async (userId: string): Promise<SavedRecipe[]> =>
   );
   
   const snapshot = await getDocs(q);
+  console.log(`[getSavedRecipes] userId=${userId} found=${snapshot.docs.length}`);
+  console.log('[getSavedRecipes] ids=', snapshot.docs.map(d => d.id));
+  console.log('[getSavedRecipes] docs=', snapshot.docs.map(d => d.data()));
+  try {
+    console.log('[getSavedRecipes] docs_json=', JSON.stringify(snapshot.docs.map(d => ({ id: d.id, ...d.data() })), null, 2));
+  } catch (e) {
+    console.log('[getSavedRecipes] docs_json stringify failed', e);
+  }
   return snapshot.docs.map(doc => ({
     id: doc.id,
     ...doc.data()

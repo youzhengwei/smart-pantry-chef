@@ -1,4 +1,4 @@
-"import { InventoryItem } from '@/types';
+import { InventoryItem } from '@/types';
 import { Timestamp } from 'firebase/firestore';
 
 // Convert image file to base64
@@ -85,7 +85,9 @@ export const addInventoryViaImage = async (
         storage: item.storage || 'fridge' as 'fridge' | 'freezer' | 'pantry',
         reorderThreshold: 2,
         isLowStock: false,
-        status
+        status,
+        source: 'ai',
+        createdAt: Timestamp.now()
       };
     });
 

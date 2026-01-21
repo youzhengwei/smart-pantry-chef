@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getSavedRecipes, getRecipes, getRecipeAI, unsaveRecipe } from '@/services/firebaseService';
+import { getSavedRecipes, getRecipeById, getRecipeAI, unsaveRecipe } from '@/services/firebaseService';
 import { SavedRecipe, Recipe, RecipeAI } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,14 +27,11 @@ const SavedRecipes: React.FC = () => {
   const loadSavedRecipes = async () => {
     if (!user) return;
     try {
-      const [saved, allRecipes] = await Promise.all([
-        getSavedRecipes(user.uid),
-        getRecipes()
-      ]);
+      const saved = await getSavedRecipes(user.uid);
 
       const enrichedSaved: SavedRecipeWithDetails[] = await Promise.all(
         saved.map(async (sr) => {
-          const recipe = allRecipes.find(r => r.id === sr.recipeId);
+          const recipe = await getRecipeById(sr.recipeId);
           const aiData = recipe ? await getRecipeAI(recipe.id!) : null;
           return {
             ...sr,

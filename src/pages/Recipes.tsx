@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getRecommendedRecipes, saveRecipe, getSavedRecipes, getRecipes } from '@/services/firebaseService';
+import { getRecommendedRecipes, saveRecipe, getSavedRecipes, getRecipes, unsaveRecipe } from '@/services/firebaseService';
 import { generateRecipes, saveRecipes, fetchAIGeneratedRecipes, testWebhookConnection } from '@/services/aiRecipeService';
 import { RecipeWithScore, SavedRecipe, AIGeneratedRecipe } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -40,6 +40,10 @@ const Recipes: React.FC = () => {
   const [strictOnly, setStrictOnly] = useState(true);
   const [preferenceText, setPreferenceText] = useState('');
 
+  // Filter state
+  const [showGeneratedOnly, setShowGeneratedOnly] = useState(false);
+  const [showFavouritesOnly, setShowFavouritesOnly] = useState(false);
+
   useEffect(() => {
     loadData();
   }, [user]);
@@ -52,6 +56,7 @@ const Recipes: React.FC = () => {
         getSavedRecipes(user.uid),
         fetchAIGeneratedRecipes(user.uid)
       ]);
+      console.log('[Recipes.loadData] savedData raw =', savedData);
       setRecipes(recipesData);
       setSavedRecipes(savedData);
       setAiRecipes(aiRecipesData);
@@ -122,21 +127,26 @@ const Recipes: React.FC = () => {
 
   const handleSaveRecipe = async (recipeId: string) => {
     if (!user) return;
-    
-    const isAlreadySaved = savedRecipes.some(sr => sr.recipeId === recipeId);
-    if (isAlreadySaved) {
-      toast({ title: 'Recipe already saved!' });
-      return;
-    }
-
+    // If already saved -> unsave (delete SavedRecipe document)
+    const existing = savedRecipes.find(sr => sr.recipeId === recipeId);
     try {
-      await saveRecipe(user.uid, recipeId);
+      if (existing && existing.id) {
+        // Unsave
+        await unsaveRecipe(existing.id);
+        toast({ title: 'Recipe unsaved' });
+      } else {
+        // Save
+        await saveRecipe(user.uid, recipeId);
+        toast({ title: 'Recipe saved!' });
+      }
+
+      // Refresh saved state
       await loadData();
-      toast({ title: 'Recipe saved!' });
     } catch (error) {
+      console.error('Error toggling save:', error);
       toast({
         title: 'Error',
-        description: 'Failed to save recipe.',
+        description: 'Failed to update saved recipes.',
         variant: 'destructive',
       });
     }
@@ -244,9 +254,30 @@ const Recipes: React.FC = () => {
 
       {/* Recommended Recipes Section */}
       <div className="space-y-4">
-        <h2 className="font-display text-2xl font-semibold text-foreground">
-          Recommended Recipes
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-2xl font-semibold text-foreground">
+            Recommended Recipes
+          </h2>
+          <div className="flex gap-2">
+            <Button
+              variant={showGeneratedOnly ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowGeneratedOnly(!showGeneratedOnly)}
+              className="text-xs"
+            >
+              Generated
+            </Button>
+            <Button
+              variant={showFavouritesOnly ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowFavouritesOnly(!showFavouritesOnly)}
+              className="text-xs"
+            >
+              <Heart className="h-3 w-3 mr-1" />
+              Saved
+            </Button>
+          </div>
+        </div>
 
         {/* Recipe Grid */}
         {recipes.length === 0 ? (
@@ -263,14 +294,34 @@ const Recipes: React.FC = () => {
           </Card>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {recipes.map((recipe) => (
-              <RecommendedRecipeCard
-                key={recipe.id}
-                recipe={recipe}
-                onSaveRecipe={handleSaveRecipe}
-                isRecipeSaved={isRecipeSaved}
-              />
-            ))}
+            {recipes
+              .filter(recipe => {
+                if (showGeneratedOnly && recipe.source !== 'ai') return false;
+                if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
+                return true;
+              })
+              .length === 0 ? (
+              <Card className="magnet-card col-span-full">
+                <CardContent className="flex flex-col items-center justify-center py-8">
+                  <p className="text-muted-foreground">No recipes match your filters</p>
+                </CardContent>
+              </Card>
+            ) : (
+              recipes
+                .filter(recipe => {
+                  if (showGeneratedOnly && recipe.source !== 'ai') return false;
+                  if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
+                  return true;
+                })
+                .map((recipe) => (
+                  <RecommendedRecipeCard
+                    key={recipe.id}
+                    recipe={recipe}
+                    onSaveRecipe={handleSaveRecipe}
+                    isRecipeSaved={isRecipeSaved}
+                  />
+                ))
+            )}
           </div>
         )}
       </div>
@@ -299,6 +350,8 @@ const Recipes: React.FC = () => {
                 key={recipe.id}
                 recipe={recipe}
                 onFavouriteChange={handleFavouriteChange}
+                isSaved={isRecipeSaved(recipe.id!)}
+                onSaveToggle={handleSaveRecipe}
               />
             ))}
           </div>

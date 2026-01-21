@@ -21,86 +21,129 @@ const RecommendedRecipeCard: React.FC<RecommendedRecipeCardProps> = ({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   return (
-    <Card className="magnet-card overflow-hidden">
-      <CardHeader className="bg-gradient-to-br from-primary/5 to-fresh/5 pb-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="font-display text-xl">{recipe.name}</CardTitle>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {(recipe.tags || []).map((tag) => (
-                <Badge key={tag} variant="outline" className="text-xs capitalize">
-                  {tag}
+    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <DialogTrigger asChild>
+        <Card className="magnet-card overflow-hidden cursor-pointer hover:shadow-lg transition-shadow">
+          {/* Image */}
+          {recipe.imageUrl && (
+            <img
+              src={recipe.imageUrl}
+              alt={recipe.name}
+              className="h-48 w-full object-cover"
+            />
+          )}
+
+          <CardHeader className="bg-gradient-to-br from-primary/5 to-fresh/5 pb-2">
+            <CardTitle className="font-display text-lg line-clamp-2">{recipe.name}</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex gap-3 text-sm text-muted-foreground">
+              {recipe.cookingTime && (
+                <span>⏱ {recipe.cookingTime}</span>
+              )}
+              {recipe.difficulty && (
+                <Badge variant="outline" className="text-xs capitalize">
+                  {recipe.difficulty}
                 </Badge>
-              ))}
+              )}
+            </div>
+
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSaveRecipe(recipe.id!);
+              }}
+              className="w-full"
+            >
+              <Heart
+                className={cn('h-4 w-4 mr-2', isRecipeSaved(recipe.id!) && 'fill-current text-red-500')}
+              />
+              {isRecipeSaved(recipe.id!) ? 'Unsave' : 'Save'}
+            </Button>
+          </CardContent>
+        </Card>
+      </DialogTrigger>
+
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl">{recipe.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          {/* Image */}
+          {recipe.imageUrl && (
+            <img
+              src={recipe.imageUrl}
+              alt={recipe.name}
+              className="w-full h-64 object-cover rounded-lg"
+            />
+          )}
+          
+          {/* Metadata */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Difficulty</p>
+              <Badge variant="outline" className="capitalize">{recipe.difficulty || '-'}</Badge>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Cooking Time</p>
+              <p className="text-sm font-medium">{recipe.cookingTime || '-'}</p>
             </div>
           </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 font-display text-lg font-bold text-primary">
-            {recipe.score}
+
+          {/* Ingredients */}
+          <div>
+            <h4 className="font-semibold mb-2">Ingredients:</h4>
+            <ul className="space-y-1">
+              {(recipe.ingredients || []).map((ingredient, index) => {
+                if (typeof ingredient === 'string') {
+                  return (
+                    <li key={index} className="text-sm">
+                      • {ingredient}
+                    </li>
+                  );
+                }
+                return (
+                  <li key={index} className="text-sm">
+                    • {ingredient.quantity} {ingredient.unit} {ingredient.name}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
-        </div>
-      </CardHeader>
-      <CardContent className="p-4">
-        <div className="mb-4 space-y-3">
-          <h4 className="font-semibold text-foreground">Ingredients:</h4>
-          <ul className="space-y-1">
-            {(recipe.ingredients || []).map((ingredient, index) => (
-              <li key={index} className="text-sm text-muted-foreground">
-                • {typeof ingredient === 'string' ? ingredient : ingredient?.name || String(ingredient)}
-              </li>
-            ))}
-          </ul>
-        </div>
 
-        <div className="flex gap-2">
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="flex-1">
-                View Recipe
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="font-display text-2xl">{recipe.name}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <h4 className="font-semibold mb-2">Ingredients:</h4>
-                  <ul className="space-y-1">
-                    {(recipe.ingredients || []).map((ingredient, index) => (
-                      <li key={index} className="text-sm">
-                        • {typeof ingredient === 'string' ? ingredient : ingredient?.name || String(ingredient)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <Button
-                  onClick={() => onSaveRecipe(recipe.id!)}
-                  className="w-full gap-2"
-                  disabled={isRecipeSaved(recipe.id!)}
-                >
-                  <Heart
-                    className={cn('h-4 w-4', isRecipeSaved(recipe.id!) && 'fill-current')}
-                  />
-                  {isRecipeSaved(recipe.id!) ? 'Saved' : 'Save Recipe'}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          {/* Instructions */}
+          {recipe.instructions && recipe.instructions.length > 0 && (
+            <div>
+              <h4 className="font-semibold mb-2">Instructions:</h4>
+              <ol className="space-y-2">
+                {recipe.instructions.map((instruction, index) => {
+                  const text = typeof instruction === 'string' ? instruction : instruction.text;
+                  const step = typeof instruction === 'string' ? (index + 1) : (instruction.step || (index + 1));
+                  return (
+                    <li key={index} className="text-sm">
+                      <span className="font-medium">{step}.</span> {text}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          )}
 
           <Button
-            variant="outline"
-            size="icon"
             onClick={() => onSaveRecipe(recipe.id!)}
-            disabled={isRecipeSaved(recipe.id!)}
+            className="w-full gap-2"
+            variant={isRecipeSaved(recipe.id!) ? 'destructive' : 'default'}
           >
             <Heart
-              className={cn('h-4 w-4', isRecipeSaved(recipe.id!) && 'fill-current text-primary')}
+              className={cn('h-4 w-4', isRecipeSaved(recipe.id!) && 'fill-current')}
             />
+            {isRecipeSaved(recipe.id!) ? 'Unsave Recipe' : 'Save Recipe'}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </DialogContent>
+    </Dialog>
   );
 };
 

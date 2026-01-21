@@ -117,6 +117,17 @@ export interface RecipeWithScore extends Recipe {
   expiringIngredients: string[];
   missingIngredients: string[];
   aiData?: RecipeAI;
+  // Add fields from AIGeneratedRecipe for recommended recipes
+  instructions?: (string | Instruction)[];
+  // Allow object ingredients from AI-generated recipes
+  ingredients?: (string | Ingredient)[];
+  cookingTime?: string;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  servings?: number;
+  imageUrl?: string;
+  isFavourite?: boolean;
+  createdAt?: Timestamp;
+  source?: string;
 }
 
 export interface StoreProductWithStore extends StoreProduct {
