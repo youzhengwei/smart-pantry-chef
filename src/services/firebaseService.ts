@@ -169,8 +169,21 @@ export const getRecommendedRecipes = async (userId: string): Promise<RecipeWithS
     .filter(item => item.status !== 'fresh')
     .map(item => item.name.toLowerCase());
   
-  // Get all recipes
-  const recipes = await getRecipes();
+  // Get user's recipes only (filter by userId)
+  const q = query(collection(db, 'recipes'), where('userId', '==', userId));
+  const snapshot = await getDocs(q);
+  console.log(`[getRecommendedRecipes] Found ${snapshot.docs.length} recipes for userId: ${userId}`);
+  const recipes = snapshot.docs
+    .map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Recipe))
+    .filter(recipe =>
+      recipe.name &&
+      Array.isArray(recipe.ingredients) &&
+      recipe.ingredients.length > 0
+    );
+  console.log(`[getRecommendedRecipes] After filtering: ${recipes.length} recipes with ingredients`);
   
   // Score each recipe
   const scoredRecipes: RecipeWithScore[] = [];
@@ -182,13 +195,15 @@ export const getRecommendedRecipes = async (userId: string): Promise<RecipeWithS
     const missingIngredients: string[] = [];
     
     for (const ingredient of recipe.ingredients) {
-      // Ensure ingredient is a string
-      if (typeof ingredient !== 'string') {
-        console.warn('Skipping non-string ingredient:', ingredient);
+      // Handle both string and object ingredients
+      const ingredientName = typeof ingredient === 'string' ? ingredient : ingredient?.name;
+      
+      if (!ingredientName) {
+        console.warn('Skipping ingredient with no name:', ingredient);
         continue;
       }
 
-      const ingredientLower = ingredient.toLowerCase();
+      const ingredientLower = ingredientName.toLowerCase();
       const isInInventory = inventoryNames.some(name => 
         ingredientLower.includes(name) || name.includes(ingredientLower)
       );
@@ -198,14 +213,14 @@ export const getRecommendedRecipes = async (userId: string): Promise<RecipeWithS
       
       if (isExpiring) {
         score += 2;
-        expiringIngredients.push(ingredient);
-        matchedIngredients.push(ingredient);
+        expiringIngredients.push(ingredientName);
+        matchedIngredients.push(ingredientName);
       } else if (isInInventory) {
         score += 1;
-        matchedIngredients.push(ingredient);
+        matchedIngredients.push(ingredientName);
       } else {
         score -= 1;
-        missingIngredients.push(ingredient);
+        missingIngredients.push(ingredientName);
       }
     }
     
@@ -224,6 +239,7 @@ export const getRecommendedRecipes = async (userId: string): Promise<RecipeWithS
   }
   
   // Sort by score descending
+  console.log(`[getRecommendedRecipes] Returning ${scoredRecipes.length} scored recipes`);
   return scoredRecipes.sort((a, b) => b.score - a.score);
 };
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getRecommendedRecipes, saveRecipe, getSavedRecipes } from '@/services/firebaseService';
+import { getRecommendedRecipes, saveRecipe, getSavedRecipes, getRecipes } from '@/services/firebaseService';
 import { generateRecipes, saveRecipes, fetchAIGeneratedRecipes, testWebhookConnection } from '@/services/aiRecipeService';
 import { RecipeWithScore, SavedRecipe, AIGeneratedRecipe } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import RecipeCard from '@/components/RecipeCard';
+import RecommendedRecipeCard from '@/components/RecommendedRecipeCard';
 import {
   ChefHat,
   Loader2,
@@ -241,11 +242,45 @@ const Recipes: React.FC = () => {
         </CardContent>
       </Card>
 
+      {/* Recommended Recipes Section */}
+      <div className="space-y-4">
+        <h2 className="font-display text-2xl font-semibold text-foreground">
+          Recommended Recipes
+        </h2>
+
+        {/* Recipe Grid */}
+        {recipes.length === 0 ? (
+          <Card className="magnet-card">
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
+                <ChefHat className="h-10 w-10 text-muted-foreground" />
+              </div>
+              <h3 className="mb-2 font-display text-xl font-semibold">No recipes available</h3>
+              <p className="text-center text-muted-foreground">
+                Add more items to your inventory to get recipe recommendations.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {recipes.map((recipe) => (
+              <RecommendedRecipeCard
+                key={recipe.id}
+                recipe={recipe}
+                onSaveRecipe={handleSaveRecipe}
+                isRecipeSaved={isRecipeSaved}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* AI Generated Recipes Section */}
       {aiRecipes.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl font-semibold text-foreground">
+            <h2 className="font-display text-2xl font-semibold text-foreground flex items-center gap-2">
+              <Sparkles className="h-6 w-6 text-fresh" />
               AI Generated Recipes
             </h2>
             <Button
@@ -269,105 +304,6 @@ const Recipes: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* Recommended Recipes Section */}
-      <div className="space-y-4">
-        <h2 className="font-display text-2xl font-semibold text-foreground">
-          Recommended Recipes
-        </h2>
-
-        {/* Recipe Grid */}
-        {recipes.length === 0 ? (
-          <Card className="magnet-card">
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
-                <ChefHat className="h-10 w-10 text-muted-foreground" />
-              </div>
-              <h3 className="mb-2 font-display text-xl font-semibold">No recipes available</h3>
-              <p className="text-center text-muted-foreground">
-                Add more items to your inventory to get recipe recommendations.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {recipes.map((recipe) => (
-            <Card key={recipe.id} className="magnet-card overflow-hidden">
-              <CardHeader className="bg-gradient-to-br from-primary/5 to-fresh/5 pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="font-display text-xl">{recipe.name}</CardTitle>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {recipe.tags.map(tag => (
-                        <Badge key={tag} variant="outline" className="text-xs capitalize">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 font-display text-lg font-bold text-primary">
-                    {recipe.score}
-                  </div>
-                </div>
-                </CardHeader>
-                <CardContent className="p-4">
-                  <div className="mb-4 space-y-3">
-                    <h4 className="font-semibold text-foreground">Ingredients:</h4>
-                    <ul className="space-y-1">
-                      {recipe.ingredients.map((ingredient, index) => (
-                        <li key={index} className="text-sm text-muted-foreground">
-                          • {ingredient}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="w-full mb-2">
-                        View Recipe
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle className="font-display text-2xl">{recipe.name}</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="font-semibold mb-2">Ingredients:</h4>
-                          <ul className="space-y-1">
-                            {recipe.ingredients.map((ingredient, index) => (
-                              <li key={index} className="text-sm">• {ingredient}</li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        <Button
-                          onClick={() => handleSaveRecipe(recipe.id!)}
-                          className="w-full gap-2"
-                          disabled={isRecipeSaved(recipe.id!)}
-                        >
-                          <Heart className={cn("h-4 w-4", isRecipeSaved(recipe.id!) && "fill-current")} />
-                          {isRecipeSaved(recipe.id!) ? 'Saved' : 'Save Recipe'}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => handleSaveRecipe(recipe.id!)}
-                    disabled={isRecipeSaved(recipe.id!)}
-                  >
-                    <Heart className={cn("h-4 w-4", isRecipeSaved(recipe.id!) && "fill-current text-primary")} />
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 };
