@@ -1,4 +1,4 @@
-"import { InventoryItem } from '@/types';
+import { InventoryItem } from '@/types';
 import { Timestamp } from 'firebase/firestore';
 
 // Convert image file to base64
