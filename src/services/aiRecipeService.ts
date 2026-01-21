@@ -13,27 +13,27 @@ import {
 import { db } from '@/lib/firebase';
 import { AIGeneratedRecipe, Ingredient } from '@/types';
 
-// Generate recipes using Railway webhook
+// Generate recipes using n8n webhook and retrieve from Firebase
 export const generateRecipes = async (
   userId: string,
   strictOnly: boolean,
   preferenceText: string
 ): Promise<AIGeneratedRecipe[]> => {
-  // Replace with your actual Railway n8n webhook URL
-  const WEBHOOK_URL = import.meta.env.VITE_RAILWAY_WEBHOOK_URL || 'https://your-railway-app.up.railway.app/webhook/generate-recipes';
+  // Use the n8n webhook URL
+  const WEBHOOK_URL = 'https://n8ngc.codeblazar.org/webhook/generate-recipes';
 
   try {
+    // Call the webhook to trigger recipe generation
+    console.log('Triggering recipe generation webhook...');
     const response = await fetch(WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Add authentication if required
-        // 'Authorization': `Bearer ${import.meta.env.VITE_WEBHOOK_TOKEN}`,
       },
       body: JSON.stringify({
         userId,
         strictOnly,
-        preferenceText,
+        preference: preferenceText, // Note: using 'preference' as per your spec
         timestamp: new Date().toISOString()
       })
     });
@@ -43,10 +43,19 @@ export const generateRecipes = async (
       throw new Error(`Webhook failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    const data = await response.json();
-    return data.recipes || [];
+    const webhookData = await response.json();
+    console.log('Webhook response:', webhookData);
+
+    // Give the n8n workflow time to process and save to Firebase
+    // Processing takes approximately 40 seconds
+    await new Promise(resolve => setTimeout(resolve, 40000));
+
+    // Fetch the generated recipes from Firebase
+    const generatedRecipes = await fetchAIGeneratedRecipes(userId);
+    
+    return generatedRecipes;
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('Recipe generation error:', error);
     throw new Error(`Failed to generate recipes: ${error.message}`);
   }
 };
@@ -104,15 +113,16 @@ export const saveRecipes = async (
       continue;
     }
 
-    // Save new recipe
+    // Save new recipe into root 'recipes' collection with userId field
     const recipeData: Omit<AIGeneratedRecipe, 'id'> = {
       ...recipe,
+      userId,
       isFavourite: false,
       createdAt: serverTimestamp() as any,
       source: 'ai'
     };
 
-    const docRef = await addDoc(collection(db, 'users', userId, 'recipes'), recipeData);
+    const docRef = await addDoc(collection(db, 'recipes'), recipeData);
 
     savedRecipes.push({
       id: docRef.id,
@@ -129,7 +139,7 @@ export const toggleFavourite = async (
   recipeId: string,
   isFavourite: boolean
 ): Promise<void> => {
-  const recipeRef = doc(db, 'users', userId, 'recipes', recipeId);
+  const recipeRef = doc(db, 'recipes', recipeId);
 
   await updateDoc(recipeRef, {
     isFavourite,
@@ -140,7 +150,8 @@ export const toggleFavourite = async (
 // Fetch favourite recipes
 export const fetchFavourites = async (userId: string): Promise<AIGeneratedRecipe[]> => {
   const q = query(
-    collection(db, 'users', userId, 'recipes'),
+    collection(db, 'recipes'),
+    where('userId', '==', userId),
     where('isFavourite', '==', true),
     orderBy('favouritedAt', 'desc')
   );
@@ -161,7 +172,8 @@ export const fetchFavourites = async (userId: string): Promise<AIGeneratedRecipe
 // Fetch all AI-generated recipes (for the main recipes page)
 export const fetchAIGeneratedRecipes = async (userId: string): Promise<AIGeneratedRecipe[]> => {
   const q = query(
-    collection(db, 'users', userId, 'recipes'),
+    collection(db, 'recipes'),
+    where('userId', '==', userId),
     where('source', '==', 'ai'),
     orderBy('createdAt', 'desc')
   );

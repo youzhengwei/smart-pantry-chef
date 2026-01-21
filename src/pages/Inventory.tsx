@@ -508,7 +508,7 @@ const Inventory: React.FC = () => {
 
         {/* ADD/EDIT ITEM DIALOG */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="bg-card sm:max-w-md">
+          <DialogContent className="bg-card sm:max-w-md animate-in slide-in-from-left-1/2 duration-300">
             <DialogHeader>
               <DialogTitle>
                 {editingItem ? 'Edit Item' : selectedProduct ? 'Add Item' : 'Add New Item'}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getRecommendedRecipes, saveRecipe, getSavedRecipes } from '@/services/firebaseService';
+import { getRecommendedRecipes, saveRecipe, getSavedRecipes, getRecipes } from '@/services/firebaseService';
 import { generateRecipes, saveRecipes, fetchAIGeneratedRecipes, testWebhookConnection } from '@/services/aiRecipeService';
 import { RecipeWithScore, SavedRecipe, AIGeneratedRecipe } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,7 @@ const Recipes: React.FC = () => {
   const [recipes, setRecipes] = useState<RecipeWithScore[]>([]);
   const [aiRecipes, setAiRecipes] = useState<AIGeneratedRecipe[]>([]);
   const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]);
+  const [userRecipes, setUserRecipes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeWithScore | null>(null);
@@ -46,14 +47,16 @@ const Recipes: React.FC = () => {
   const loadData = async () => {
     if (!user) return;
     try {
-      const [recipesData, savedData, aiRecipesData] = await Promise.all([
+      const [recipesData, savedData, aiRecipesData, userRecipesData] = await Promise.all([
         getRecommendedRecipes(user.uid),
         getSavedRecipes(user.uid),
-        fetchAIGeneratedRecipes(user.uid)
+        fetchAIGeneratedRecipes(user.uid),
+        getRecipes(user.uid)
       ]);
       setRecipes(recipesData);
       setSavedRecipes(savedData);
       setAiRecipes(aiRecipesData);
+      setUserRecipes((userRecipesData || []).filter((r: any) => r.source === 'ai'));
     } catch (error) {
       console.error('Error loading recipes:', error);
       toast({
@@ -241,35 +244,6 @@ const Recipes: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* AI Generated Recipes Section */}
-      {aiRecipes.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl font-semibold text-foreground">
-              AI Generated Recipes
-            </h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => loadData()}
-              disabled={loading}
-            >
-              <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-              Refresh
-            </Button>
-          </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {aiRecipes.map((recipe) => (
-              <RecipeCard
-                key={recipe.id}
-                recipe={recipe}
-                onFavouriteChange={handleFavouriteChange}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Recommended Recipes Section */}
       <div className="space-y-4">
         <h2 className="font-display text-2xl font-semibold text-foreground">
@@ -298,7 +272,7 @@ const Recipes: React.FC = () => {
                   <div>
                     <CardTitle className="font-display text-xl">{recipe.name}</CardTitle>
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {recipe.tags.map(tag => (
+                      {(recipe.tags || []).map(tag => (
                         <Badge key={tag} variant="outline" className="text-xs capitalize">
                           {tag}
                         </Badge>
@@ -314,9 +288,9 @@ const Recipes: React.FC = () => {
                   <div className="mb-4 space-y-3">
                     <h4 className="font-semibold text-foreground">Ingredients:</h4>
                     <ul className="space-y-1">
-                      {recipe.ingredients.map((ingredient, index) => (
+                      {(recipe.ingredients || []).map((ingredient, index) => (
                         <li key={index} className="text-sm text-muted-foreground">
-                          • {ingredient}
+                          • {typeof ingredient === 'string' ? ingredient : ingredient?.name || String(ingredient)}
                         </li>
                       ))}
                     </ul>
@@ -335,11 +309,11 @@ const Recipes: React.FC = () => {
                       <div className="space-y-4">
                         <div>
                           <h4 className="font-semibold mb-2">Ingredients:</h4>
-                          <ul className="space-y-1">
-                            {recipe.ingredients.map((ingredient, index) => (
-                              <li key={index} className="text-sm">• {ingredient}</li>
+                            <ul className="space-y-1">
+                            {(recipe.ingredients || []).map((ingredient, index) => (
+                              <li key={index} className="text-sm">• {typeof ingredient === 'string' ? ingredient : ingredient?.name || String(ingredient)}</li>
                             ))}
-                          </ul>
+                            </ul>
                         </div>
 
                         <Button
@@ -368,6 +342,71 @@ const Recipes: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* AI Generated Recipes Section */}
+      {aiRecipes.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-2xl font-semibold text-foreground flex items-center gap-2">
+              <Sparkles className="h-6 w-6 text-fresh" />
+              AI Generated Recipes
+            </h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadData()}
+              disabled={loading}
+            >
+              <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {aiRecipes.map((recipe) => (
+              <RecipeCard
+                key={recipe.id}
+                recipe={recipe}
+                onFavouriteChange={handleFavouriteChange}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* User's Recipes from Firestore */}
+      {userRecipes.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-2xl font-semibold text-foreground">Your Recipes</h2>
+          </div>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {userRecipes.map((recipe) => (
+              <Card key={recipe.id} className="magnet-card overflow-hidden">
+                {(recipe.imageUrl || (recipe.imageUrls && recipe.imageUrls[0])) && (
+                  <img
+                    src={recipe.imageUrl || (recipe.imageUrls && recipe.imageUrls[0])}
+                    alt={recipe.name}
+                    className="h-48 w-full object-cover"
+                  />
+                )}
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-display text-lg font-semibold">{recipe.name}</h3>
+                    <div className="text-sm text-muted-foreground">{recipe.cookingTime || ''}</div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-sm capitalize">{recipe.difficulty || 'unknown'}</Badge>
+                      <Badge variant="outline" className="text-sm">Serves: {recipe.servings ?? '-'}</Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
