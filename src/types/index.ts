@@ -52,15 +52,21 @@ export interface RecipeAI {
 
 export interface Ingredient {
   name: string;
-  quantity: string;
+  quantity: string | number;
   unit: string;
+  imageUrl?: string;
+}
+
+export interface Instruction {
+  text: string;
+  step: string | number;
 }
 
 export interface AIGeneratedRecipe {
   id?: string;
   name: string;
   ingredients: (string | Ingredient)[];
-  instructions: string[];
+  instructions: (string | Instruction)[];
   cookingTime: string;
   difficulty: 'easy' | 'medium' | 'hard';
   servings: number;

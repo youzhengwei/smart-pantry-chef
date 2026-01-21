@@ -32,6 +32,7 @@ import {
   ScanBarcode
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import InventoryImageUpload from '@/components/InventoryImageUpload';
 
 const Inventory: React.FC = () => {
   const { user } = useAuth();
@@ -52,6 +53,7 @@ const Inventory: React.FC = () => {
   // Editing state
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [previousInventoryCount, setPreviousInventoryCount] = useState(0);
   const [selectedProductId, setSelectedProductId] = useState<string | 'new' | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -713,6 +715,50 @@ const Inventory: React.FC = () => {
             </div>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* IMAGE UPLOAD SECTION */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="font-display text-2xl font-semibold">Add Items by Image</h2>
+          <p className="text-muted-foreground">Upload a photo to detect items using AI</p>
+        </div>
+        <InventoryImageUpload
+          onUploadStart={() => {
+            setPreviousInventoryCount(inventory.length);
+          }}
+          onUploadComplete={async (success, errorMessage) => {
+            if (success) {
+              // Wait 15 seconds for processing
+              await new Promise(resolve => setTimeout(resolve, 15000));
+              
+              // Reload inventory
+              await loadInventory();
+              
+              // Check if items were added
+              const newInventory = await getInventory(user!.uid);
+              const currentCount = newInventory.length;
+              if (currentCount > previousInventoryCount) {
+                toast({
+                  title: 'Success!',
+                  description: `Added ${currentCount - previousInventoryCount} item${currentCount - previousInventoryCount !== 1 ? 's' : ''} to your inventory.`,
+                });
+              } else {
+                toast({
+                  title: 'No new items detected',
+                  description: 'Try uploading a clearer photo or add items manually.',
+                  variant: 'destructive',
+                });
+              }
+            } else {
+              toast({
+                title: 'Failed to process image',
+                description: errorMessage || 'Please try again.',
+                variant: 'destructive',
+              });
+            }
+          }}
+        />
       </div>
 
       {/* FILTERS */}

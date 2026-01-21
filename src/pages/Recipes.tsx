@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import RecipeCard from '@/components/RecipeCard';
+import RecommendedRecipeCard from '@/components/RecommendedRecipeCard';
 import {
   ChefHat,
   Loader2,
@@ -31,7 +32,6 @@ const Recipes: React.FC = () => {
   const [recipes, setRecipes] = useState<RecipeWithScore[]>([]);
   const [aiRecipes, setAiRecipes] = useState<AIGeneratedRecipe[]>([]);
   const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]);
-  const [userRecipes, setUserRecipes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeWithScore | null>(null);
@@ -47,16 +47,14 @@ const Recipes: React.FC = () => {
   const loadData = async () => {
     if (!user) return;
     try {
-      const [recipesData, savedData, aiRecipesData, userRecipesData] = await Promise.all([
+      const [recipesData, savedData, aiRecipesData] = await Promise.all([
         getRecommendedRecipes(user.uid),
         getSavedRecipes(user.uid),
-        fetchAIGeneratedRecipes(user.uid),
-        getRecipes(user.uid)
+        fetchAIGeneratedRecipes(user.uid)
       ]);
       setRecipes(recipesData);
       setSavedRecipes(savedData);
       setAiRecipes(aiRecipesData);
-      setUserRecipes((userRecipesData || []).filter((r: any) => r.source === 'ai'));
     } catch (error) {
       console.error('Error loading recipes:', error);
       toast({
@@ -266,78 +264,12 @@ const Recipes: React.FC = () => {
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {recipes.map((recipe) => (
-            <Card key={recipe.id} className="magnet-card overflow-hidden">
-              <CardHeader className="bg-gradient-to-br from-primary/5 to-fresh/5 pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="font-display text-xl">{recipe.name}</CardTitle>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {(recipe.tags || []).map(tag => (
-                        <Badge key={tag} variant="outline" className="text-xs capitalize">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 font-display text-lg font-bold text-primary">
-                    {recipe.score}
-                  </div>
-                </div>
-                </CardHeader>
-                <CardContent className="p-4">
-                  <div className="mb-4 space-y-3">
-                    <h4 className="font-semibold text-foreground">Ingredients:</h4>
-                    <ul className="space-y-1">
-                      {(recipe.ingredients || []).map((ingredient, index) => (
-                        <li key={index} className="text-sm text-muted-foreground">
-                          • {typeof ingredient === 'string' ? ingredient : ingredient?.name || String(ingredient)}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="w-full mb-2">
-                        View Recipe
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle className="font-display text-2xl">{recipe.name}</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="font-semibold mb-2">Ingredients:</h4>
-                            <ul className="space-y-1">
-                            {(recipe.ingredients || []).map((ingredient, index) => (
-                              <li key={index} className="text-sm">• {typeof ingredient === 'string' ? ingredient : ingredient?.name || String(ingredient)}</li>
-                            ))}
-                            </ul>
-                        </div>
-
-                        <Button
-                          onClick={() => handleSaveRecipe(recipe.id!)}
-                          className="w-full gap-2"
-                          disabled={isRecipeSaved(recipe.id!)}
-                        >
-                          <Heart className={cn("h-4 w-4", isRecipeSaved(recipe.id!) && "fill-current")} />
-                          {isRecipeSaved(recipe.id!) ? 'Saved' : 'Save Recipe'}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => handleSaveRecipe(recipe.id!)}
-                    disabled={isRecipeSaved(recipe.id!)}
-                  >
-                    <Heart className={cn("h-4 w-4", isRecipeSaved(recipe.id!) && "fill-current text-primary")} />
-                  </Button>
-                </CardContent>
-              </Card>
+              <RecommendedRecipeCard
+                key={recipe.id}
+                recipe={recipe}
+                onSaveRecipe={handleSaveRecipe}
+                isRecipeSaved={isRecipeSaved}
+              />
             ))}
           </div>
         )}
@@ -368,41 +300,6 @@ const Recipes: React.FC = () => {
                 recipe={recipe}
                 onFavouriteChange={handleFavouriteChange}
               />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* User's Recipes from Firestore */}
-      {userRecipes.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl font-semibold text-foreground">Your Recipes</h2>
-          </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {userRecipes.map((recipe) => (
-              <Card key={recipe.id} className="magnet-card overflow-hidden">
-                {(recipe.imageUrl || (recipe.imageUrls && recipe.imageUrls[0])) && (
-                  <img
-                    src={recipe.imageUrl || (recipe.imageUrls && recipe.imageUrls[0])}
-                    alt={recipe.name}
-                    className="h-48 w-full object-cover"
-                  />
-                )}
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-display text-lg font-semibold">{recipe.name}</h3>
-                    <div className="text-sm text-muted-foreground">{recipe.cookingTime || ''}</div>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-sm capitalize">{recipe.difficulty || 'unknown'}</Badge>
-                      <Badge variant="outline" className="text-sm">Serves: {recipe.servings ?? '-'}</Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
             ))}
           </div>
         </div>
