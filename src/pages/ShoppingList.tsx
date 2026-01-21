@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getRecommendedRecipes, getSavedRecipes, getInventory } from '@/services/firebaseService';
+import { getRecommendedRecipes, getSavedRecipes, getInventory, getSmartSuggestions } from '@/services/firebaseService';
 import { fetchAIGeneratedRecipes } from '@/services/aiRecipeService';
-import { RecipeWithScore, AIGeneratedRecipe, InventoryItem } from '@/types';
+import { RecipeWithScore, AIGeneratedRecipe, InventoryItem, StoreProductWithStore } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,9 @@ import {
   ChefHat,
   AlertCircle,
   Download,
-  Copy
+  Copy,
+  Lightbulb,
+  TrendingDown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -47,6 +49,9 @@ const ShoppingList: React.FC = () => {
   const [selectedRecipes, setSelectedRecipes] = useState<SelectedRecipe[]>([]);
   const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [suggestions, setSuggestions] = useState<{ [ingredient: string]: StoreProductWithStore[] }>({});
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [selectedItemForSuggestion, setSelectedItemForSuggestion] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -96,7 +101,7 @@ const ShoppingList: React.FC = () => {
     });
   };
 
-  const generateShoppingList = () => {
+  const generateShoppingList = async () => {
     if (selectedRecipes.length === 0) {
       toast({
         title: 'No recipes selected',
@@ -144,6 +149,23 @@ const ShoppingList: React.FC = () => {
     });
 
     setShoppingItems(items);
+    setSuggestions({});
+    setSelectedItemForSuggestion(null);
+    
+    // Load smart suggestions
+    try {
+      setLoadingSuggestions(true);
+      const missingIngredients = items.filter(item => !item.hasInInventory).map(item => item.ingredient);
+      if (missingIngredients.length > 0) {
+        const suggestionsData = await getSmartSuggestions(missingIngredients, 'Singapore');
+        setSuggestions(suggestionsData);
+      }
+    } catch (error) {
+      console.error('Error loading suggestions:', error);
+    } finally {
+      setLoadingSuggestions(false);
+    }
+
     toast({
       title: 'Shopping list generated',
       description: `${items.length} items added to your shopping list.`,
@@ -447,6 +469,70 @@ const ShoppingList: React.FC = () => {
               )}
             </CardContent>
           </Card>
+
+          {/* Smart Suggestions Panel */}
+          {Object.keys(suggestions).length > 0 && (
+            <Card className="magnet-card sticky top-[28rem]">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Lightbulb className="h-5 w-5 text-yellow-500" />
+                  Smart Suggestions
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Found better deals for your items
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {loadingSuggestions ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {Object.entries(suggestions).map(([ingredient, options]) => (
+                      <div key={ingredient} className="space-y-2">
+                        <p className="text-sm font-semibold text-foreground">
+                          {ingredient}
+                        </p>
+                        {options.map((option, idx) => (
+                          <div
+                            key={`${option.id}-${idx}`}
+                            className={cn(
+                              "p-2 rounded border cursor-pointer transition-all hover:bg-accent",
+                              selectedItemForSuggestion === `${ingredient}-${idx}` && "bg-primary/10 border-primary"
+                            )}
+                            onClick={() => setSelectedItemForSuggestion(`${ingredient}-${idx}`)}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate">
+                                  {option.productName}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {option.store.name}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <TrendingDown className="h-3 w-3 text-green-600" />
+                                <p className="text-xs font-semibold text-green-600">
+                                  ${option.price.toFixed(2)}
+                                </p>
+                              </div>
+                            </div>
+                            {idx === 0 && (
+                              <Badge className="mt-1 text-xs bg-green-100 text-green-800">
+                                Best Price
+                              </Badge>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

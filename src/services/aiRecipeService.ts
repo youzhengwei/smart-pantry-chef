@@ -178,3 +178,24 @@ export const fetchAIGeneratedRecipes = async (userId: string): Promise<AIGenerat
       recipe.ingredients.every(ingredient => typeof ingredient === 'string')
     );
 };
+
+// Add a manual recipe directly to favorites
+export const addManualRecipe = async (
+  userId: string,
+  recipe: Omit<AIGeneratedRecipe, 'id' | 'isFavourite' | 'createdAt' | 'source' | 'favouritedAt'>
+): Promise<AIGeneratedRecipe> => {
+  const recipeData: Omit<AIGeneratedRecipe, 'id'> = {
+    ...recipe,
+    isFavourite: true,
+    createdAt: serverTimestamp() as any,
+    source: 'manual',
+    favouritedAt: serverTimestamp() as any
+  };
+
+  const docRef = await addDoc(collection(db, 'users', userId, 'recipes'), recipeData);
+
+  return {
+    id: docRef.id,
+    ...recipeData
+  };
+};

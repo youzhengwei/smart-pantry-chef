@@ -291,6 +291,61 @@ export const getStoreProducts = async (storeId: string): Promise<StoreProduct[]>
   } as StoreProduct));
 };
 
+// Get smart suggestions for shopping items
+export const getSmartSuggestions = async (
+  ingredients: string[],
+  area: string
+): Promise<{ [ingredient: string]: StoreProductWithStore[] }> => {
+  const stores = await getStoresByArea(area);
+  if (stores.length === 0) return {};
+  
+  const storeMap = new Map(stores.map(s => [s.id!, s]));
+  const suggestions: { [ingredient: string]: StoreProductWithStore[] } = {};
+  
+  for (const ingredient of ingredients) {
+    const allMatches: StoreProductWithStore[] = [];
+    
+    for (const storeId of Array.from(storeMap.keys())) {
+      const products = await getStoreProducts(storeId);
+      
+      products.forEach(product => {
+        const ingredientLower = ingredient.toLowerCase();
+        const productNameLower = product.productName.toLowerCase();
+        const categoryLower = product.category.toLowerCase();
+        
+        // Match if ingredient is in product name, category, or keywords
+        const isMatch = 
+          productNameLower.includes(ingredientLower) ||
+          ingredientLower.includes(productNameLower) ||
+          product.keywords.some(kw => 
+            ingredientLower.includes(kw.toLowerCase()) || 
+            kw.toLowerCase().includes(ingredientLower)
+          ) ||
+          (categoryLower.includes('vegetable') && ingredientLower.includes('vegetable')) ||
+          (categoryLower.includes('dairy') && ingredientLower.includes('dairy')) ||
+          (categoryLower.includes('meat') && ingredientLower.includes('meat')) ||
+          (categoryLower.includes('fruit') && ingredientLower.includes('fruit'));
+        
+        if (isMatch && product.inStock) {
+          allMatches.push({
+            ...product,
+            store: storeMap.get(storeId)!
+          });
+        }
+      });
+    }
+    
+    // Sort by price (cheapest first)
+    allMatches.sort((a, b) => a.price - b.price);
+    
+    if (allMatches.length > 0) {
+      suggestions[ingredient] = allMatches.slice(0, 3); // Top 3 suggestions
+    }
+  }
+  
+  return suggestions;
+};
+
 export const searchStoreProducts = async (
   area: string, 
   keywords: string[]
