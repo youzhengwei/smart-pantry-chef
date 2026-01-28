@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { highlightKeywords } from '@/lib/utils';
 import { 
   MapPin, 
   Search, 
@@ -1115,9 +1116,11 @@ const StoreLocator: React.FC = () => {
             ) : productResults.length > 0 ? (
               <div className="space-y-3">
                 {productResults.slice(0, 5).map((product, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">{product.title}</p>
+                  <div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
+                    <div className="flex-1">
+                      <p className="font-medium">
+                        {highlightKeywords(product.title, initialSearch.split(/\s+/).filter(w => w.length > 0))}
+                      </p>
                       {product.hasItem && product.price && (
                         <p className="text-sm text-muted-foreground">
                           {product.price} {product.measurement && `• ${product.measurement}`}
