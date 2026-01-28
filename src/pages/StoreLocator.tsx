@@ -1047,7 +1047,7 @@ const StoreLocator: React.FC = () => {
           {webhookResults.length > 0 && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <h3 className="font-semibold text-sm">Stores with this product:</h3>
+                <h3 className="font-semibold text-sm">Nearest store that might sell this product:</h3>
                 {webhookResults.map((result, idx) => (
                   <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex-1">
