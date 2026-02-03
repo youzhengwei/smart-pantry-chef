@@ -280,50 +280,52 @@ const Recipes: React.FC = () => {
         </div>
 
         {/* Recipe Grid */}
-        {recipes.length === 0 ? (
-          <Card className="magnet-card">
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
-                <ChefHat className="h-10 w-10 text-muted-foreground" />
-              </div>
-              <h3 className="mb-2 font-display text-xl font-semibold">No recipes available</h3>
-              <p className="text-center text-muted-foreground">
-                Add more items to your inventory to get recipe recommendations.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {recipes
-              .filter(recipe => {
-                if (showGeneratedOnly && recipe.source !== 'ai') return false;
-                if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
-                return true;
-              })
-              .length === 0 ? (
-              <Card className="magnet-card col-span-full">
+        {(() => {
+          const filteredRecipes = recipes.filter(recipe => {
+            if (showGeneratedOnly && recipe.source !== 'ai') return false;
+            if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
+            return true;
+          });
+
+          if (recipes.length === 0) {
+            return (
+              <Card className="magnet-card">
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
+                    <ChefHat className="h-10 w-10 text-muted-foreground" />
+                  </div>
+                  <h3 className="mb-2 font-display text-xl font-semibold">No recipes available</h3>
+                  <p className="text-center text-muted-foreground">
+                    Add more items to your inventory to get recipe recommendations.
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          }
+
+          if (filteredRecipes.length === 0) {
+            return (
+              <Card className="magnet-card">
                 <CardContent className="flex flex-col items-center justify-center py-8">
                   <p className="text-muted-foreground">No recipes match your filters</p>
                 </CardContent>
               </Card>
-            ) : (
-              recipes
-                .filter(recipe => {
-                  if (showGeneratedOnly && recipe.source !== 'ai') return false;
-                  if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
-                  return true;
-                })
-                .map((recipe) => (
-                  <RecommendedRecipeCard
-                    key={recipe.id}
-                    recipe={recipe}
-                    onSaveRecipe={handleSaveRecipe}
-                    isRecipeSaved={isRecipeSaved}
-                  />
-                ))
-            )}
-          </div>
-        )}
+            );
+          }
+
+          return (
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredRecipes.map((recipe) => (
+                <RecommendedRecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  onSaveRecipe={handleSaveRecipe}
+                  isRecipeSaved={isRecipeSaved}
+                />
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* AI Generated Recipes Section */}

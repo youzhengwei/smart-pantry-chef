@@ -281,7 +281,7 @@ const Favourites: React.FC = () => {
       </div>
 
       {/* Favourites Grid */}
-      {favourites.length === 0 ? (
+      {Array.isArray(favourites) && favourites.length === 0 ? (
         <Card className="magnet-card">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-red-50 text-red-500">

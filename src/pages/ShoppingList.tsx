@@ -20,7 +20,9 @@ import {
   Download,
   Copy,
   Lightbulb,
-  TrendingDown
+  TrendingDown,
+  Edit2,
+  X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,7 +31,10 @@ interface ShoppingItem {
   recipes: string[]; // which recipes need this
   hasInInventory: boolean;
   inventoryQuantity?: string;
+  quantity: number; // editable quantity for estimates
   checked: boolean;
+  isEditing?: boolean;
+  editValue?: string;
 }
 
 interface SelectedRecipe {
@@ -52,6 +57,52 @@ const ShoppingList: React.FC = () => {
   const [suggestions, setSuggestions] = useState<{ [ingredient: string]: StoreProductWithStore[] }>({});
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [selectedItemForSuggestion, setSelectedItemForSuggestion] = useState<string | null>(null);
+  const [pricingMode, setPricingMode] = useState<'cheapest' | 'best-store'>('cheapest');
+  
+  // Create API functions for bot to manipulate shopping list
+  const shoppingListApi = {
+    removeItem: (ingredient: string) => {
+      console.log(`Bot requested to remove: ${ingredient}`);
+      removeItem(ingredient);
+    },
+    addItem: (ingredient: string) => {
+      console.log(`Bot requested to add: ${ingredient}`);
+      setShoppingItems(prev => [...prev, {
+        ingredient: ingredient.trim(),
+        recipes: [],
+        hasInInventory: false,
+        quantity: 1,
+        checked: false
+      }]);
+    },
+
+
+    updateItem: (ingredient: string, newIngredient: string) => {
+      console.log(`Bot requested to update: ${ingredient} -> ${newIngredient}`);
+      setShoppingItems(prev =>
+        prev.map(item =>
+          item.ingredient === ingredient
+            ? { ...item, ingredient: newIngredient.trim() }
+            : item
+        )
+      );
+    },
+    clearList: () => {
+      console.log('Bot requested to clear list');
+      clearList();
+    },
+    getList: () => {
+      return shoppingItems.map(item => ({
+        ingredient: item.ingredient,
+        recipes: item.recipes,
+        hasInInventory: item.hasInInventory,
+        quantity: item.quantity,
+        checked: item.checked
+      }));
+    }
+  };
+
+  /* Botpress integration removed — webchat initialization omitted. */
 
   useEffect(() => {
     loadData();
@@ -136,6 +187,7 @@ const ShoppingList: React.FC = () => {
         recipes: Array.from(recipes),
         hasInInventory: !!inventoryItem,
         inventoryQuantity: inventoryItem ? `${inventoryItem.quantity} ${inventoryItem.quantityUnit}` : undefined,
+        quantity: 1,
         checked: false
       };
     });
@@ -184,18 +236,85 @@ const ShoppingList: React.FC = () => {
     setShoppingItems(prev => prev.filter(item => item.ingredient !== ingredient));
   };
 
+  const startEditingItem = (ingredient: string) => {
+    setShoppingItems(prev =>
+      prev.map(item =>
+        item.ingredient === ingredient 
+          ? { ...item, isEditing: true, editValue: item.ingredient }
+          : item
+      )
+    );
+  };
+
+  const saveEditedItem = (oldIngredient: string) => {
+    setShoppingItems(prev =>
+      prev.map(item => {
+        if (item.ingredient === oldIngredient && item.editValue && item.editValue.trim()) {
+          return {
+            ...item,
+            ingredient: item.editValue.trim(),
+            isEditing: false,
+            editValue: undefined
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  const cancelEditingItem = (ingredient: string) => {
+    setShoppingItems(prev =>
+      prev.map(item =>
+        item.ingredient === ingredient
+          ? { ...item, isEditing: false, editValue: undefined }
+          : item
+      )
+    );
+  };
+
   const clearList = () => {
     setShoppingItems([]);
     setSelectedRecipes([]);
   };
 
   const downloadList = () => {
-    const list = shoppingItems
-      .map(item => `${item.checked ? '✓' : '○'} ${item.ingredient}${item.hasInInventory ? ` (Have: ${item.inventoryQuantity})` : ' (NEED TO BUY)'}`)
-      .join('\n');
+    const lines: string[] = [];
 
+    // Header with estimated total (respect current pricing mode)
+    if (pricedItemCount) {
+      lines.push(`Estimated total (${pricingMode === 'best-store' && bestStoreInfo.store ? `store: ${bestStoreInfo.store.name}` : 'per-item cheapest'}): ${formatCurrency(estimatedTotal)}`);
+    }
+
+    for (const item of shoppingItems) {
+      const qty = item.quantity || 1;
+      const base = `${item.checked ? '✓' : '○'} ${item.ingredient}`;
+      if (item.hasInInventory) {
+        lines.push(`${base} — In inventory: ${item.inventoryQuantity}`);
+        continue;
+      }
+
+      // try to resolve a price for the item according to mode
+      let resolved: { unit?: number; total?: number; store?: string } | null = null;
+      if (pricingMode === 'cheapest') {
+        const bp = getBestPrice(item.ingredient);
+        if (bp) resolved = { unit: bp, total: bp * qty };
+      } else if (pricingMode === 'best-store' && bestStoreInfo.store) {
+        const opts = suggestions[item.ingredient] ?? [];
+        const match = opts.find(o => (o.store.id || o.store.name) === (bestStoreInfo.store.id || bestStoreInfo.store.name));
+        const p = match ? Number(match.price || 0) : null;
+        if (p) resolved = { unit: p, total: p * qty, store: bestStoreInfo.store.name };
+      }
+
+      if (resolved) {
+        lines.push(`${base} x${qty} — ${formatCurrency(resolved.total)}${resolved.unit ? ` (${formatCurrency(resolved.unit)} each${resolved.store ? ' @ ' + resolved.store : ''})` : ''}`);
+      } else {
+        lines.push(`${base} x${qty} — NEED TO BUY`);
+      }
+    }
+
+    const content = lines.join('\n');
     const element = document.createElement('a');
-    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(list));
+    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(content));
     element.setAttribute('download', 'shopping-list.txt');
     element.style.display = 'none';
     document.body.appendChild(element);
@@ -206,13 +325,40 @@ const ShoppingList: React.FC = () => {
   };
 
   const copyToClipboard = () => {
-    const list = shoppingItems
-      .map(item => `${item.checked ? '✓' : '•'} ${item.ingredient}${item.hasInInventory ? ` (Have: ${item.inventoryQuantity})` : ''}`)
-      .join('\n');
+    const lines: string[] = [];
+    if (pricedItemCount) {
+      lines.push(`Estimated total (${pricingMode === 'best-store' && bestStoreInfo.store ? `store: ${bestStoreInfo.store.name}` : 'per-item cheapest'}): ${formatCurrency(estimatedTotal)}`);
+    }
 
-    navigator.clipboard.writeText(list);
+    for (const item of shoppingItems) {
+      const qty = item.quantity || 1;
+      const base = `${item.checked ? '✓' : '•'} ${item.ingredient}`;
+      if (item.hasInInventory) {
+        lines.push(`${base} — In inventory: ${item.inventoryQuantity}`);
+        continue;
+      }
+
+      let resolved: { unit?: number; total?: number; store?: string } | null = null;
+      if (pricingMode === 'cheapest') {
+        const bp = getBestPrice(item.ingredient);
+        if (bp) resolved = { unit: bp, total: bp * qty };
+      } else if (pricingMode === 'best-store' && bestStoreInfo.store) {
+        const opts = suggestions[item.ingredient] ?? [];
+        const match = opts.find(o => (o.store.id || o.store.name) === (bestStoreInfo.store.id || bestStoreInfo.store.name));
+        const p = match ? Number(match.price || 0) : null;
+        if (p) resolved = { unit: p, total: p * qty, store: bestStoreInfo.store.name };
+      }
+
+      if (resolved) {
+        lines.push(`${base} x${qty} — ${formatCurrency(resolved.total)}${resolved.unit ? ` (${formatCurrency(resolved.unit)} each${resolved.store ? ' @ ' + resolved.store : ''})` : ''}`);
+      } else {
+        lines.push(`${base} x${qty}`);
+      }
+    }
+
+    navigator.clipboard.writeText(lines.join('\n'));
     toast({ title: 'Copied', description: 'Shopping list copied to clipboard' });
-  };
+  }; 
 
   if (loading) {
     return (
@@ -232,6 +378,57 @@ const ShoppingList: React.FC = () => {
 
   const checkedCount = shoppingItems.filter(item => item.checked).length;
   const missingCount = shoppingItems.filter(item => !item.hasInInventory).length;
+
+  // Pricing helpers (derived from `suggestions` and current `pricingMode`)
+  const formatCurrency = (v: number) => new Intl.NumberFormat('en-SG', { style: 'currency', currency: 'SGD' }).format(v);
+  const getBestPrice = (ingredient: string): number | null => {
+    const opts = suggestions[ingredient];
+    if (!opts || opts.length === 0) return null;
+    const prices = opts.map(o => Number(o.price || 0)).filter(p => !isNaN(p) && p > 0);
+    if (prices.length === 0) return null;
+    return Math.min(...prices);
+  };
+
+  const cheapestLineTotals: number[] = shoppingItems
+    .filter(i => !i.hasInInventory)
+    .map(i => {
+      const bp = getBestPrice(i.ingredient);
+      return bp ? bp * (i.quantity || 1) : 0;
+    })
+    .filter(v => v > 0);
+
+  const storeMap = new Map<string, { store: any; total: number; itemsPriced: number }>();
+  for (const item of shoppingItems.filter(i => !i.hasInInventory)) {
+    const opts = suggestions[item.ingredient] ?? [];
+    const seenStores = new Set<string>();
+    for (const o of opts) {
+      const sid = o.store.id || o.store.name || 'unknown';
+      const price = Number(o.price || 0);
+      if (!sid || !price || isNaN(price) || price <= 0) continue;
+      if (!storeMap.has(sid)) storeMap.set(sid, { store: o.store, total: 0, itemsPriced: 0 });
+      const cur = storeMap.get(sid)!;
+      cur.total += price * (item.quantity || 1);
+      if (!seenStores.has(sid)) {
+        cur.itemsPriced += 1;
+        seenStores.add(sid);
+      }
+    }
+  }
+
+  let bestStoreInfo: { store?: any; total: number; itemsPriced: number } = { total: 0, itemsPriced: 0 };
+  if (storeMap.size > 0) {
+    const candidates = Array.from(storeMap.values());
+    candidates.sort((a, b) => {
+      if (b.itemsPriced !== a.itemsPriced) return b.itemsPriced - a.itemsPriced;
+      return a.total - b.total;
+    });
+    bestStoreInfo = { store: candidates[0].store, total: candidates[0].total, itemsPriced: candidates[0].itemsPriced };
+  }
+
+  const estimatedTotal = pricingMode === 'best-store' ? bestStoreInfo.total : cheapestLineTotals.reduce((s, v) => s + v, 0);
+  const pricedItemCount = pricingMode === 'best-store' ? bestStoreInfo.itemsPriced : cheapestLineTotals.length;
+
+
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -377,15 +574,59 @@ const ShoppingList: React.FC = () => {
               ) : (
                 <>
                   {/* Stats */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded bg-muted p-2">
-                      <p className="text-muted-foreground">To Buy</p>
-                      <p className="font-semibold text-lg">{missingCount}</p>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded bg-muted p-2">
+                        <p className="text-muted-foreground">To Buy</p>
+                        <p className="font-semibold text-lg">{missingCount}</p>
+                      </div>
+                      <div className="rounded bg-muted p-2">
+                        <p className="text-muted-foreground">Done</p>
+                        <p className="font-semibold text-lg">{checkedCount}/{shoppingItems.length}</p>
+                      </div>
                     </div>
-                    <div className="rounded bg-muted p-2">
-                      <p className="text-muted-foreground">Done</p>
-                      <p className="font-semibold text-lg">{checkedCount}/{shoppingItems.length}</p>
-                    </div>
+
+                    <div className="rounded bg-muted p-3 text-sm space-y-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-muted-foreground">Estimated total</p>
+                          <p className="font-semibold">{pricedItemCount ? formatCurrency(estimatedTotal) : 'N/A'}</p>
+                          <p className="text-xs text-muted-foreground">Based on suggestions; uses selected pricing mode</p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <div className="text-xs text-muted-foreground">Mode:</div>
+                          <div className="rounded-md border bg-transparent p-1">
+                            <button
+                              className={cn('px-2 py-1 text-sm rounded', pricingMode === 'cheapest' ? 'bg-primary text-white' : 'hover:bg-accent')}
+                              onClick={() => setPricingMode('cheapest')}
+                            >
+                              Per-item cheapest
+                            </button>
+                            <button
+                              className={cn('ml-1 px-2 py-1 text-sm rounded', pricingMode === 'best-store' ? 'bg-primary text-white' : 'hover:bg-accent')}
+                              onClick={() => setPricingMode('best-store')}
+                            >
+                              Best single store
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <div>
+                          {pricingMode === 'best-store' && bestStoreInfo.store ? (
+                            <>
+                              <div>Best store: <span className="font-medium text-foreground">{bestStoreInfo.store.name}</span></div>
+                              <div className="mt-1">{bestStoreInfo.itemsPriced}/{missingCount} items priced at this store</div>
+                            </>
+                          ) : (
+                            <div>{pricedItemCount}/{missingCount} items priced</div>
+                          )}
+                        </div>
+                        <div className="text-right text-xs text-muted-foreground">Assumes quantity where provided</div>
+                      </div>
+                    </div> 
                   </div>
 
                   {/* Items */}
@@ -394,42 +635,168 @@ const ShoppingList: React.FC = () => {
                       <div
                         key={item.ingredient}
                         className={cn(
-                          "flex items-start gap-2 p-2 rounded border transition-all group",
-                          item.checked ? "bg-muted/50 border-muted" : "hover:bg-accent",
-                          !item.hasInInventory ? "border-red-200 dark:border-red-900" : ""
+                          "flex items-center gap-2 p-2 rounded border transition-all group",
+                          item.checked && !item.isEditing ? "bg-muted/50 border-muted" : "hover:bg-accent",
+                          !item.hasInInventory && !item.isEditing ? "border-red-200 dark:border-red-900" : ""
                         )}
                       >
-                        <Checkbox
-                          checked={item.checked}
-                          onChange={() => toggleItemChecked(item.ingredient)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className={cn(
-                            "text-sm font-medium truncate",
-                            item.checked && "line-through text-muted-foreground"
-                          )}>
-                            {item.ingredient}
-                          </p>
-                          {item.hasInInventory && (
-                            <p className="text-xs text-muted-foreground">
-                              Have: {item.inventoryQuantity}
+                        {!item.isEditing && (
+                          <Checkbox
+                            checked={item.checked}
+                            onChange={() => toggleItemChecked(item.ingredient)}
+                            className="mt-0.5"
+                          />
+                        )}
+                        
+                        {item.isEditing ? (
+                          <div className="flex-1 flex items-center gap-2 min-w-0">
+                            <Input
+                              value={item.editValue || ''}
+                              onChange={(e) => {
+                                setShoppingItems(prev =>
+                                  prev.map(i =>
+                                    i.ingredient === item.ingredient
+                                      ? { ...i, editValue: e.target.value }
+                                      : i
+                                  )
+                                );
+                              }}
+                              placeholder="Item name"
+                              className="h-8 text-sm"
+                              autoFocus
+                            />
+
+                            <Input
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={item.quantity}
+                              onChange={(e) => {
+                                const v = Math.max(1, Number(e.target.value) || 1);
+                                setShoppingItems(prev => prev.map(i => i.ingredient === item.ingredient ? { ...i, quantity: v } : i));
+                              }}
+                              className="w-20 h-8 text-sm"
+                            />
+
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => saveEditedItem(item.ingredient)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Check className="h-3 w-3 text-green-600" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => cancelEditingItem(item.ingredient)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-3 w-3 text-red-600" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex-1 min-w-0">
+                            <p className={cn(
+                              "text-sm font-medium truncate",
+                              item.checked && "line-through text-muted-foreground"
+                            )}>
+                              {item.ingredient}
                             </p>
-                          )}
-                          {!item.hasInInventory && (
-                            <p className="text-xs text-red-600 dark:text-red-400 font-medium">
-                              Need to buy
-                            </p>
-                          )}
+                            {item.hasInInventory && (
+                              <p className="text-xs text-muted-foreground">
+                                In inventory: {item.inventoryQuantity}
+                              </p>
+                            )}
+
+                            {!item.hasInInventory && (
+                              <>
+                                <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+                                  Need to buy
+                                </p>
+                                {/* per-item estimated price (from smart suggestions) */}
+                                {(() => {
+                                  const bp = getBestPrice(item.ingredient);
+                                  return bp ? (
+                                    <p className="text-sm font-semibold mt-1">{formatCurrency(bp)}</p>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground mt-1">Price: N/A</p>
+                                  );
+                                })()}
+                              </>
+                            )} 
+                          </div>
+                        )}
+                        
+                        {/* quantity input + action buttons */}
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={item.quantity}
+                            onChange={(e) => {
+                              const v = Math.max(1, Number(e.target.value) || 1);
+                              setShoppingItems(prev => prev.map(i => i.ingredient === item.ingredient ? { ...i, quantity: v } : i));
+                            }}
+                            className="w-16 h-8 text-sm"
+                          />
+
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => startEditingItem(item.ingredient)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Edit2 className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeItem(item.ingredient)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeItem(item.ingredient)}
-                          className="opacity-0 group-hover:opacity-100 h-6 w-6 p-0"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+
+                        {/* show per-item price / line total when available */}
+                        {!item.isEditing && !item.hasInInventory && (
+                          <div className="ml-4 text-right min-w-[120px]">
+                            {(() => {
+                              if (pricingMode === 'cheapest') {
+                                const bp = getBestPrice(item.ingredient);
+                                return bp ? (
+                                  <div>
+                                    <div className="text-xs text-muted-foreground">{formatCurrency(bp)} each</div>
+                                    <div className="text-sm font-semibold">{formatCurrency(bp * (item.quantity || 1))}</div>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-muted-foreground">Price: N/A</div>
+                                );
+                              }
+
+                              // best-store mode: find price from chosen store
+                              if (pricingMode === 'best-store' && bestStoreInfo.store) {
+                                const opts = suggestions[item.ingredient] ?? [];
+                                const match = opts.find(o => (o.store.id || o.store.name) === (bestStoreInfo.store.id || bestStoreInfo.store.name));
+                                const p = match ? Number(match.price || 0) : null;
+                                return p ? (
+                                  <div>
+                                    <div className="text-xs text-muted-foreground">{formatCurrency(p)} each @ {bestStoreInfo.store.name}</div>
+                                    <div className="text-sm font-semibold">{formatCurrency(p * (item.quantity || 1))}</div>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-muted-foreground">Not available at selected store</div>
+                                );
+                              }
+
+                              return null;
+                            })()}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
