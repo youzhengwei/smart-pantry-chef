@@ -41,8 +41,6 @@ const Recipes: React.FC = () => {
   const [preferenceText, setPreferenceText] = useState('');
 
   // Filter state
-  const [showGeneratedOnly, setShowGeneratedOnly] = useState(false);
-  const [showFavouritesOnly, setShowFavouritesOnly] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -258,25 +256,6 @@ const Recipes: React.FC = () => {
           <h2 className="font-display text-2xl font-semibold text-foreground">
             Recommended Recipes
           </h2>
-          <div className="flex gap-2">
-            <Button
-              variant={showGeneratedOnly ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShowGeneratedOnly(!showGeneratedOnly)}
-              className="text-xs"
-            >
-              Generated
-            </Button>
-            <Button
-              variant={showFavouritesOnly ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShowFavouritesOnly(!showFavouritesOnly)}
-              className="text-xs"
-            >
-              <Heart className="h-3 w-3 mr-1" />
-              Saved
-            </Button>
-          </div>
         </div>
 
         {/* Recipe Grid */}
@@ -294,67 +273,38 @@ const Recipes: React.FC = () => {
           </Card>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {recipes
-              .filter(recipe => {
-                if (showGeneratedOnly && recipe.source !== 'ai') return false;
-                if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
-                return true;
-              })
-              .length === 0 ? (
+            {recipes.length === 0 ? (
               <Card className="magnet-card col-span-full">
                 <CardContent className="flex flex-col items-center justify-center py-8">
-                  <p className="text-muted-foreground">No recipes match your filters</p>
+                  <p className="text-muted-foreground">No recipes available</p>
                 </CardContent>
               </Card>
             ) : (
-              recipes
-                .filter(recipe => {
-                  if (showGeneratedOnly && recipe.source !== 'ai') return false;
-                  if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
-                  return true;
-                })
-                .map((recipe) => (
-                  <RecommendedRecipeCard
-                    key={recipe.id}
-                    recipe={recipe}
-                    onSaveRecipe={handleSaveRecipe}
-                    isRecipeSaved={isRecipeSaved}
-                  />
-                ))
+              recipes.map((recipe) => (
+                <RecommendedRecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  onSaveRecipe={handleSaveRecipe}
+                  isRecipeSaved={isRecipeSaved}
+                />
+              ))
             )}
           </div>
         )}
       </div>
 
-      {/* AI Generated Recipes Section */}
+      {/* AI Generated Recipes */}
       {aiRecipes.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl font-semibold text-foreground flex items-center gap-2">
-              <Sparkles className="h-6 w-6 text-fresh" />
-              AI Generated Recipes
-            </h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => loadData()}
-              disabled={loading}
-            >
-              <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-              Refresh
-            </Button>
-          </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {aiRecipes.map((recipe) => (
-              <RecipeCard
-                key={recipe.id}
-                recipe={recipe}
-                onFavouriteChange={handleFavouriteChange}
-                isSaved={isRecipeSaved(recipe.id!)}
-                onSaveToggle={handleSaveRecipe}
-              />
-            ))}
-          </div>
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {aiRecipes.map((recipe) => (
+            <RecipeCard
+              key={recipe.id}
+              recipe={recipe}
+              onFavouriteChange={handleFavouriteChange}
+              isSaved={isRecipeSaved(recipe.id!)}
+              onSaveToggle={handleSaveRecipe}
+            />
+          ))}
         </div>
       )}
     </div>

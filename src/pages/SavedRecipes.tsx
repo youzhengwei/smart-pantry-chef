@@ -1,16 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSavedRecipes, getRecipeById, getRecipeAI, unsaveRecipe } from '@/services/firebaseService';
-import { SavedRecipe, Recipe, RecipeAI } from '@/types';
+import { SavedRecipe, Recipe, RecipeAI, AIGeneratedRecipe, Ingredient, Instruction } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Heart, Loader2, Trash2, ChefHat } from 'lucide-react';
+import RecipeCard from '@/components/RecipeCard';
+import { Heart, Loader2, ChefHat } from 'lucide-react';
+import { Timestamp } from 'firebase/firestore';
+
+type SavedRecipeDoc = Recipe & {
+  ingredients?: (string | Ingredient)[];
+  instructions?: (string | Instruction)[];
+  cookingTime?: string;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  servings?: number;
+  imageUrl?: string;
+  imageUrls?: string[];
+  createdAt?: Timestamp;
+  isFavourite?: boolean;
+  source?: string;
+};
 
 interface SavedRecipeWithDetails extends SavedRecipe {
-  recipe?: Recipe;
+  recipe?: SavedRecipeDoc;
   aiData?: RecipeAI;
 }
 
@@ -19,6 +32,14 @@ const SavedRecipes: React.FC = () => {
   const { toast } = useToast();
   const [savedRecipes, setSavedRecipes] = useState<SavedRecipeWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const formatIngredient = (ingredient: string | { name: string; quantity?: string | number; unit?: string }) => {
+    if (typeof ingredient === 'string') return ingredient;
+    const quantity = ingredient.quantity ?? '';
+    const unit = ingredient.unit ?? '';
+    const parts = [quantity, unit, ingredient.name].filter(Boolean);
+    return parts.join(' ');
+  };
 
   useEffect(() => {
     loadSavedRecipes();
@@ -71,6 +92,34 @@ const SavedRecipes: React.FC = () => {
     );
   }
 
+  const toRecipeCard = (saved: SavedRecipeWithDetails): AIGeneratedRecipe => {
+    const recipeId = saved.recipe?.id || saved.recipeId;
+    const baseName = saved.recipe?.name || 'Unknown Recipe';
+    const ingredients = saved.recipe?.ingredients || [];
+    const instructions = saved.recipe?.instructions || saved.aiData?.steps || [];
+    const imageUrl = saved.recipe?.imageUrl || saved.recipe?.imageUrls?.[0];
+
+    return {
+      id: recipeId,
+      name: baseName,
+      ingredients,
+      instructions,
+      cookingTime: saved.recipe?.cookingTime || '',
+      difficulty: saved.recipe?.difficulty || 'medium',
+      servings: saved.recipe?.servings || 0,
+      isFavourite: saved.recipe?.isFavourite ?? true,
+      createdAt: saved.recipe?.createdAt || saved.savedAt || Timestamp.now(),
+      source: saved.recipe?.source || 'saved',
+      imageUrl
+    } as AIGeneratedRecipe;
+  };
+
+  const handleSaveToggle = async (recipeId: string) => {
+    const target = savedRecipes.find(sr => (sr.recipe?.id || sr.recipeId) === recipeId);
+    if (!target?.id) return;
+    await handleUnsave(target.id);
+  };
+
   return (
     <div className="animate-fade-in space-y-6">
       {/* Header */}
@@ -93,107 +142,17 @@ const SavedRecipes: React.FC = () => {
         </Card>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {savedRecipes.map((saved) => (
-            <Card key={saved.id} className="magnet-card overflow-hidden">
-              <CardHeader className="bg-gradient-to-br from-primary/10 to-accent/10 pb-3">
-                <div className="flex items-start justify-between">
-                  <CardTitle className="font-display text-xl">
-                    {saved.recipe?.name || 'Unknown Recipe'}
-                  </CardTitle>
-                  <Heart className="h-5 w-5 fill-primary text-primary" />
-                </div>
-                {saved.recipe?.tags && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {saved.recipe.tags.map(tag => (
-                      <Badge key={tag} variant="outline" className="text-xs capitalize">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent className="p-4">
-                {saved.aiData && (
-                  <p className="mb-4 text-sm text-muted-foreground line-clamp-2">
-                    {saved.aiData.description}
-                  </p>
-                )}
-
-                {saved.recipe?.ingredients && (
-                  <div className="mb-4">
-                    <div className="flex flex-wrap gap-1">
-                      {saved.recipe.ingredients.slice(0, 5).map((ingredient, idx) => (
-                        <Badge key={idx} variant="outline" className="text-xs">
-                          {ingredient}
-                        </Badge>
-                      ))}
-                      {saved.recipe.ingredients.length > 5 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{saved.recipe.ingredients.length - 5} more
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="flex-1">
-                        View Recipe
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-h-[80vh] overflow-y-auto bg-card sm:max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle className="font-display text-2xl">
-                          {saved.recipe?.name}
-                        </DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-6">
-                        {saved.aiData && (
-                          <>
-                            <p className="text-muted-foreground">{saved.aiData.description}</p>
-                            
-                            <div>
-                              <h4 className="mb-3 font-semibold">Ingredients</h4>
-                              <div className="flex flex-wrap gap-2">
-                                {saved.recipe?.ingredients.map((ingredient, idx) => (
-                                  <Badge key={idx} variant="outline">{ingredient}</Badge>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div>
-                              <h4 className="mb-3 font-semibold">Steps</h4>
-                              <ol className="space-y-3">
-                                {saved.aiData.steps.map((step, idx) => (
-                                  <li key={idx} className="flex gap-3">
-                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                                      {idx + 1}
-                                    </span>
-                                    <span className="text-muted-foreground">{step}</span>
-                                  </li>
-                                ))}
-                              </ol>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => handleUnsave(saved.id!)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {savedRecipes.map((saved) => {
+            const cardRecipe = toRecipeCard(saved);
+            return (
+              <RecipeCard
+                key={saved.id}
+                recipe={cardRecipe}
+                isSaved
+                onSaveToggle={handleSaveToggle}
+              />
+            );
+          })}
         </div>
       )}
     </div>

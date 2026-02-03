@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { RecipeWithScore } from '@/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -25,13 +24,30 @@ const RecommendedRecipeCard: React.FC<RecommendedRecipeCardProps> = ({
       <DialogTrigger asChild>
         <Card className="magnet-card overflow-hidden cursor-pointer hover:shadow-lg transition-shadow">
           {/* Image */}
-          {recipe.imageUrl && (
-            <img
-              src={recipe.imageUrl}
-              alt={recipe.name}
-              className="h-48 w-full object-cover"
-            />
-          )}
+          <div className="relative">
+            {recipe.imageUrl && (
+              <img
+                src={recipe.imageUrl}
+                alt={recipe.name}
+                className="h-48 w-full object-cover"
+              />
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSaveRecipe(recipe.id!);
+              }}
+              className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 rounded-full p-2 transition-colors"
+              aria-label={isRecipeSaved(recipe.id!) ? 'Unsave recipe' : 'Save recipe'}
+            >
+              <Heart
+                className={cn(
+                  'h-5 w-5 transition-colors',
+                  isRecipeSaved(recipe.id!) ? 'fill-red-500 text-red-500' : 'text-white'
+                )}
+              />
+            </button>
+          </div>
 
           <CardHeader className="bg-gradient-to-br from-primary/5 to-fresh/5 pb-2">
             <CardTitle className="font-display text-lg line-clamp-2">{recipe.name}</CardTitle>
@@ -48,20 +64,6 @@ const RecommendedRecipeCard: React.FC<RecommendedRecipeCardProps> = ({
               )}
             </div>
 
-            <Button
-              size="icon"
-              variant="outline"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSaveRecipe(recipe.id!);
-              }}
-              className="w-full"
-            >
-              <Heart
-                className={cn('h-4 w-4 mr-2', isRecipeSaved(recipe.id!) && 'fill-current text-red-500')}
-              />
-              {isRecipeSaved(recipe.id!) ? 'Unsave' : 'Save'}
-            </Button>
           </CardContent>
         </Card>
       </DialogTrigger>
@@ -131,16 +133,6 @@ const RecommendedRecipeCard: React.FC<RecommendedRecipeCardProps> = ({
             </div>
           )}
 
-          <Button
-            onClick={() => onSaveRecipe(recipe.id!)}
-            className="w-full gap-2"
-            variant={isRecipeSaved(recipe.id!) ? 'destructive' : 'default'}
-          >
-            <Heart
-              className={cn('h-4 w-4', isRecipeSaved(recipe.id!) && 'fill-current')}
-            />
-            {isRecipeSaved(recipe.id!) ? 'Unsave Recipe' : 'Save Recipe'}
-          </Button>
         </div>
       </DialogContent>
     </Dialog>
