@@ -58,6 +58,7 @@ const ShoppingList: React.FC = () => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [selectedItemForSuggestion, setSelectedItemForSuggestion] = useState<string | null>(null);
   const [pricingMode, setPricingMode] = useState<'cheapest' | 'best-store'>('cheapest');
+  const [estimating, setEstimating] = useState(false);
   
   // Create API functions for bot to manipulate shopping list
   const shoppingListApi = {
@@ -358,6 +359,66 @@ const ShoppingList: React.FC = () => {
 
     navigator.clipboard.writeText(lines.join('\n'));
     toast({ title: 'Copied', description: 'Shopping list copied to clipboard' });
+  };
+
+  // Send shopping list to remote webhook for price estimation
+  const postEstimate = async () => {
+    const apiUrl = '/api/estimate-price'; // server-side proxy (avoids CORS)
+    if (shoppingItems.length === 0) {
+      toast({ title: 'No items', description: 'Your shopping list is empty.', variant: 'destructive' });
+      return;
+    }
+
+    setEstimating(true);
+    try {
+      const payload = {
+        items: shoppingItems.map(i => ({
+          ingredient: i.ingredient,
+          quantity: i.quantity || 1,
+          hasInInventory: i.hasInInventory,
+          inventoryQuantity: i.inventoryQuantity || null,
+          checked: i.checked
+        })),
+        pricingMode,
+        estimatedTotal: pricedItemCount ? estimatedTotal : null,
+        metadata: {
+          source: 'smart-pantry-chef',
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'same-origin'
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Proxy error: ${res.status} ${text}`);
+      }
+
+      const resp = await res.json().catch(() => null);
+      // server returns { success: true, data }
+      if (resp && resp.success) {
+        toast({ title: 'Estimate requested', description: 'Estimator received the shopping list — check the estimator for results.' });
+      } else {
+        toast({ title: 'Estimate sent', description: 'Estimator returned an unexpected response.' });
+      }
+
+      console.log('postEstimate (proxy) response:', resp);
+    } catch (err: any) {
+      console.error('postEstimate failed', err);
+      const isLikelyCORS = /Failed to fetch|NetworkError|CORS/.test(String(err.message || err));
+      const message = isLikelyCORS
+        ? 'Request blocked by the browser — make sure the dev server is running so the proxy endpoint is available.'
+        : String(err.message || 'Unknown error');
+
+      toast({ title: 'Estimate failed', description: message, variant: 'destructive' });
+    } finally {
+      setEstimating(false);
+    }
   }; 
 
   if (loading) {
@@ -812,6 +873,7 @@ const ShoppingList: React.FC = () => {
                       <Copy className="h-3 w-3 mr-1" />
                       Copy
                     </Button>
+
                     <Button
                       size="sm"
                       variant="outline"
@@ -820,6 +882,20 @@ const ShoppingList: React.FC = () => {
                     >
                       <Download className="h-3 w-3 mr-1" />
                       Download
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      onClick={postEstimate}
+                      disabled={estimating || shoppingItems.length === 0}
+                      className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      {estimating ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3 mr-1" />
+                      )}
+                      Estimate price
                     </Button>
                   </div>
 
