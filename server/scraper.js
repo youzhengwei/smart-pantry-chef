@@ -158,45 +158,15 @@ export async function scrapeStore(store, query, browser = null) {
     // Set viewport
     await page.setViewport({ width: 1280, height: 800 });
 
-    // Navigate to search URL with timeout and retry logic
-    let pageLoaded = false;
-    let lastError = null;
-
+    // Navigate with optimized timeout
     try {
       await page.goto(searchUrl, {
-        waitUntil: 'networkidle2',
-        timeout: 30000
+        waitUntil: 'domcontentloaded',
+        timeout: 6000
       });
-      pageLoaded = true;
-      console.log(`[${store.storeName}] ✓ Page loaded successfully`);
+      console.log(`[${store.storeName}] ✓ Page loaded`);
     } catch (navError) {
-      lastError = navError;
-      console.log(`[${store.storeName}] ⚠️  First navigation attempt failed: ${navError.message}`);
-      
-      // Retry with domcontentloaded
-      try {
-        await page.goto(searchUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 20000
-        });
-        pageLoaded = true;
-        console.log(`[${store.storeName}] ✓ Retry succeeded with domcontentloaded`);
-      } catch (retryError) {
-        console.log(`[${store.storeName}] ❌ Retry also failed: ${retryError.message}`);
-        pageLoaded = false;
-      }
-    }
-
-    if (!pageLoaded) {
-      console.log(`[${store.storeName}] ❌ Could not load page, returning no results`);
-      await page.close();
-      return {
-        storeName: store.storeName,
-        storeCode: store.storeCode,
-        url: searchUrl,
-        hasItem: false,
-        error: `Failed to load page: ${lastError?.message}`
-      };
+      console.log(`[${store.storeName}] ⚠️  Timeout, continuing anyway...`);
     }
 
     // Accept common consent / cookies banners (best-effort, non-blocking)
@@ -217,31 +187,7 @@ export async function scrapeStore(store, query, browser = null) {
       console.log(`[${store.storeName}] Consent dismiss failed: ${consentErr.message || consentErr}`);
     }
 
-    // Wait for dynamic content with delay instead of waitForTimeout
-    console.log(`[${store.storeName}] Waiting for content to render...`);
-    await delay(4000);
-
-    // Gentle scroll to trigger lazy-loaded products
-    try {
-      await page.evaluate(async () => {
-        await new Promise(resolve => {
-          const totalScroll = Math.max(document.body.scrollHeight, 3000);
-          let scrolled = 0;
-          const step = 400;
-          const interval = setInterval(() => {
-            scrolled += step;
-            window.scrollTo(0, scrolled);
-            if (scrolled >= totalScroll) {
-              clearInterval(interval);
-              resolve(null);
-            }
-          }, 150);
-        });
-      });
-      await delay(2000);
-    } catch (scrollErr) {
-      console.log(`[${store.storeName}] Scroll hint failed: ${scrollErr.message || scrollErr}`);
-    }
+    // Skip delays - products should already be loaded
 
     // Try to wait for product container or results area
     const containerSelectors = [
@@ -305,8 +251,8 @@ export async function scrapeStore(store, query, browser = null) {
     console.log(`[${store.storeName}] 🔍 Checking for products with selector: ${store.selectors.productCard}`);
     
     try {
-      // Try to wait for the primary selector with 10 second timeout (reduced from 20)
-      await page.waitForSelector(store.selectors.productCard, { timeout: 10000 });
+      // Try to wait for the primary selector with 1.5 second timeout
+      await page.waitForSelector(store.selectors.productCard, { timeout: 1500 });
       console.log(`[${store.storeName}] ✓ waitForSelector SUCCEEDED for: ${store.selectors.productCard}`);
       productSelector = store.selectors.productCard;
     } catch (e) {
@@ -317,7 +263,7 @@ export async function scrapeStore(store, query, browser = null) {
         console.log(`[${store.storeName}] 🔄 Trying ${store.selectors.productCardFallback.length} fallback selectors...`);
         for (const fallbackSelector of store.selectors.productCardFallback) {
           try {
-            await page.waitForSelector(fallbackSelector, { timeout: 3000 });
+            await page.waitForSelector(fallbackSelector, { timeout: 500 });
             console.log(`[${store.storeName}] ✓ Fallback SUCCEEDED: ${fallbackSelector}`);
             productSelector = fallbackSelector;
             break;
@@ -438,36 +384,28 @@ export async function scrapeStore(store, query, browser = null) {
       const queryNorm = normalize(query).trim();
       const queryWords = queryNorm.split(' ').filter(w => w.length > 0);
       
-      // STRICTER matching: check if query words appear as whole words with better validation
+      // STRICTER matching: check if query words appear as whole words - NO SUBSTRING MATCHING FOR SHORT QUERIES
       const matched = queryWords.length === 0 ? [] : cleanedProductTexts.filter(productName => {
         const productNorm = normalize(productName);
         const productWords = productNorm.split(' ');
         
-        // Check if ALL query words appear in the product (as whole words or close matches)
+        // Check if ALL query words appear in the product (as whole words or very close matches)
         return queryWords.every(queryWord => {
-          // Skip very short query words (less than 3 chars) to avoid false matches
-          if (queryWord.length < 3) {
-            // For very short words, require exact match only
-            return productWords.includes(queryWord);
-          }
-          
-          // Check exact word match first
+          // For ALL query words, require exact whole word match first
           if (productWords.includes(queryWord)) {
             return true;
           }
           
-          // Check plural/singular variations (only for words 3+ chars)
-          if (queryWord.length >= 3) {
-            const singular = queryWord.replace(/s$/, '');
-            const plural = queryWord + 's';
-            if (productWords.includes(plural) || productWords.includes(singular)) {
-              return true;
-            }
+          // Check plural/singular variations (e.g., milk/milks, pen/pens)
+          const singular = queryWord.replace(/s$/, '');
+          const plural = queryWord + 's';
+          if (productWords.includes(plural) || productWords.includes(singular)) {
+            return true;
           }
           
-          // Check if any product word contains the query word (for compound words)
-          // But only if query word is 4+ characters to avoid false matches
-          if (queryWord.length >= 4) {
+          // Only allow substring matching for longer words (5+ chars) to catch compound words
+          // This prevents "pen" matching "peng" but allows "chocolate" to match "ferrero-chocolate"
+          if (queryWord.length >= 5) {
             return productWords.some(pw => pw.length >= queryWord.length && pw.includes(queryWord));
           }
           
@@ -566,32 +504,23 @@ export async function scrapeAllStores(query, stores = STORES) {
     console.log('[SCRAPER] ✓ Puppeteer browser launched successfully');
     console.log('[SCRAPER] Browser version:', await browser.version());
 
-    // Scrape stores sequentially with delays to avoid being blocked
-    for (let i = 0; i < stores.length; i++) {
-      const store = stores[i];
-      console.log(`\n[${i + 1}/${stores.length}] Processing ${store.storeName}...`);
-      
-      try {
-        const result = await scrapeStore(store, query, browser);
-        results.push(result);
-      } catch (storeError) {
-        // If individual store fails, add error result instead of stopping
+    // Scrape all stores in PARALLEL for speed
+    console.log(`[SCRAPER] Starting parallel scraping of ${stores.length} stores...`);
+    const storePromises = stores.map(store => 
+      scrapeStore(store, query, browser).catch(storeError => {
         console.error(`[${store.storeName}] Store scraping failed:`, storeError.message);
-        results.push({
+        return {
           storeName: store.storeName,
           storeCode: store.storeCode,
           url: `${store.baseSearchUrl}`,
           hasItem: false,
           error: `Scraping error: ${storeError.message}`
-        });
-      }
-      
-      // Small delay between stores to be polite to servers
-      if (i < stores.length - 1) {
-        console.log(`Waiting before next store...`);
-        await delay(1500);
-      }
-    }
+        };
+      })
+    );
+    
+    results.push(...await Promise.all(storePromises));
+    console.log(`[SCRAPER] ✓ Parallel scraping complete`);
 
   } catch (error) {
     console.error('\n❌ FATAL ERROR in scrapeAllStores:');
