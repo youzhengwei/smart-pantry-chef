@@ -447,18 +447,18 @@ app.post('/api/search-products', async (req, res) => {
   }
 });
 
-// Error handling middleware
+// SPA fallback - serve index.html for all non-API routes (MUST be before error handling)
+app.get('*', (req, res) => {
+  res.sendFile(join(__dirname, '../dist/index.html'));
+});
+
+// Error handling middleware (MUST be last)
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
   res.status(500).json({
     error: 'Internal server error',
     details: process.env.NODE_ENV === 'development' ? error.message : undefined
   });
-});
-
-// SPA fallback - serve index.html for all non-API routes
-app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, '../dist/index.html'));
 });
 
 // Start server
