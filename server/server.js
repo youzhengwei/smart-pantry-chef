@@ -42,6 +42,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Serve static files from dist directory (frontend build)
+app.use(express.static(join(__dirname, '../dist')));
+
 // Helper Functions
 const buildPrompt = (inventoryItems, strictOnly, preferenceText) => {
   const ingredientList = inventoryItems.map(item =>
@@ -451,6 +454,11 @@ app.use((error, req, res, next) => {
     error: 'Internal server error',
     details: process.env.NODE_ENV === 'development' ? error.message : undefined
   });
+});
+
+// SPA fallback - serve index.html for all non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(join(__dirname, '../dist/index.html'));
 });
 
 // Start server
