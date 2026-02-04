@@ -259,7 +259,7 @@ const Recipes: React.FC = () => {
         </div>
 
         {/* Recipe Grid */}
-        {recipes.length === 0 ? (
+        {recipes.length === 0 && aiRecipes.length === 0 ? (
           <Card className="magnet-card">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
@@ -293,20 +293,6 @@ const Recipes: React.FC = () => {
         )}
       </div>
 
-      {/* AI Generated Recipes */}
-      {aiRecipes.length > 0 && (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {aiRecipes.map((recipe) => (
-            <RecipeCard
-              key={recipe.id}
-              recipe={recipe}
-              onFavouriteChange={handleFavouriteChange}
-              isSaved={isRecipeSaved(recipe.id!)}
-              onSaveToggle={handleSaveRecipe}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 };
