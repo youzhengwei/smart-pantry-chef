@@ -3,10 +3,10 @@ services:
     name: freshkeep-app
     env: node
     plan: free
-    buildCommand: export PUPPETEER_CACHE_DIR=/opt/render/project/src/.cache && npm install && npm run build
+    buildCommand: npm install && npm run build
     startCommand: node server/server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/project/src/.cache
+        value: /opt/render/project/src/.cache/puppeteer
