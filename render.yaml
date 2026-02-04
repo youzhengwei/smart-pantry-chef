@@ -3,7 +3,7 @@ services:
     name: freshkeep-app
     env: node
     plan: free
-    buildCommand: npm install && npm run build && npx puppeteer browsers install chrome --path /opt/render/project/.cache/puppeteer
+    buildCommand: npm install && npm run build
     startCommand: node server/server.js
     envVars:
       - key: NODE_ENV
@@ -11,4 +11,4 @@ services:
       - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
         value: false
       - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/project/.cache/puppeteer
+        value: /opt/render/.cache/puppeteer
