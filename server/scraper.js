@@ -12,8 +12,8 @@ const PUPPETEER_LAUNCH_OPTIONS = {
     '--window-size=1920,1080',
     '--disable-web-security',
     '--disable-features=IsolateOrigins,site-per-process'
-  ],
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (typeof puppeteer.executablePath === 'function' ? puppeteer.executablePath() : undefined)
+  ]
+  // Don't specify executablePath - let Puppeteer find Chrome automatically
 };
 
 // Store configurations for Singapore supermarkets
