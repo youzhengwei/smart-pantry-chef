@@ -448,7 +448,7 @@ app.post('/api/search-products', async (req, res) => {
 });
 
 // SPA fallback - serve index.html for all non-API routes (MUST be before error handling)
-app.get('*', (req, res) => {
+app.use((req, res) => {
   res.sendFile(join(__dirname, '../dist/index.html'));
 });
 
