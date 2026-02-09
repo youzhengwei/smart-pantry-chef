@@ -41,6 +41,8 @@ const Recipes: React.FC = () => {
   const [preferenceText, setPreferenceText] = useState('');
 
   // Filter state
+  const [showFavouritesOnly, setShowFavouritesOnly] = useState(false);
+  const showGeneratedOnly = false;
 
   useEffect(() => {
     loadData();
@@ -150,7 +152,8 @@ const Recipes: React.FC = () => {
     }
   };
 
-  const isRecipeSaved = (recipeId: string) => {
+  const isRecipeSaved = (recipeId: string | undefined) => {
+    if (!recipeId) return false;
     return savedRecipes.some(sr => sr.recipeId === recipeId);
   };
 
@@ -252,23 +255,24 @@ const Recipes: React.FC = () => {
 
       {/* Recommended Recipes Section */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-2">
           <h2 className="font-display text-2xl font-semibold text-foreground">
             Recommended Recipes
           </h2>
+          <Button
+            variant={showFavouritesOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowFavouritesOnly(v => !v)}
+          >
+            {showFavouritesOnly ? "Show All" : "Show Favourites Only"}
+          </Button>
         </div>
 
         {/* Recipe Grid */}
         {recipes.length === 0 ? (
-          <Card className="magnet-card">
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
-                <ChefHat className="h-10 w-10 text-muted-foreground" />
-              </div>
-              <h3 className="mb-2 font-display text-xl font-semibold">No recipes available</h3>
-              <p className="text-center text-muted-foreground">
-                Add more items to your inventory to get recipe recommendations.
-              </p>
+          <Card className="magnet-card col-span-full">
+            <CardContent className="flex flex-col items-center justify-center py-8">
+              <p className="text-muted-foreground">{showFavouritesOnly ? "No favourite recipes found." : "No recipes available"}</p>
             </CardContent>
           </Card>
         ) : (
@@ -276,7 +280,7 @@ const Recipes: React.FC = () => {
             {recipes
               .filter(recipe => {
                 if (showGeneratedOnly && recipe.source !== 'ai') return false;
-                if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
+                if (showFavouritesOnly) return isRecipeSaved(recipe.id);
                 return true;
               })
               .length === 0 ? (
@@ -289,7 +293,7 @@ const Recipes: React.FC = () => {
               recipes
                 .filter(recipe => {
                   if (showGeneratedOnly && recipe.source !== 'ai') return false;
-                  if (showFavouritesOnly && !isRecipeSaved(recipe.id!)) return false;
+                  if (showFavouritesOnly) return isRecipeSaved(recipe.id);
                   return true;
                 })
                 .map((recipe) => (
