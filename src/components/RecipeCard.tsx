@@ -185,19 +185,6 @@ const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onFavouriteChange, isSa
             </ol>
           </div>
 
-          {/* Favorite Button */}
-          <Button
-            onClick={() => {
-              if (onSaveToggle) onSaveToggle(recipe.id!);
-              else handleToggleFavourite({ preventDefault() {}, stopPropagation() {} } as any);
-            }}
-            disabled={togglingFavourite}
-            variant={(recipe.isFavourite || isSaved) ? 'destructive' : 'default'}
-            className="w-full gap-2"
-          >
-            <Heart className={cn('h-4 w-4', (recipe.isFavourite || isSaved) && 'fill-current')} />
-            {(recipe.isFavourite || isSaved) ? 'Unsave Recipe' : 'Save Recipe'}
-          </Button>
         </div>
       </DialogContent>
     </Dialog>

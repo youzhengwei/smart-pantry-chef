@@ -41,9 +41,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-// Allow larger payloads from the frontend (shopping lists with many items).
-// If you still hit size limits, increase this value further.
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json());
 
 // Helper Functions
 const buildPrompt = (inventoryItems, strictOnly, preferenceText) => {
@@ -464,7 +462,12 @@ app.post('/api/estimate-price', async (req, res) => {
   }
 });
 
-// Error handling middleware
+// SPA fallback - serve index.html for all non-API routes (MUST be before error handling)
+app.use((req, res) => {
+  res.sendFile(join(__dirname, '../dist/index.html'));
+});
+
+// Error handling middleware (MUST be last)
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
   res.status(500).json({

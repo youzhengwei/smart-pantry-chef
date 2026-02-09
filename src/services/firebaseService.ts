@@ -352,14 +352,32 @@ export const getSmartSuggestions = async (
         const productNameLower = product.productName.toLowerCase();
         const categoryLower = product.category.toLowerCase();
         
-        // Match if ingredient is in product name, category, or keywords
+        // Helper function for whole-word matching
+        const matchesWord = (text: string, word: string): boolean => {
+          // Split text into words and check for exact match or variations
+          const words = text.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
+          
+          // Check exact match
+          if (words.includes(word)) return true;
+          
+          // Check plural/singular variations
+          const singular = word.replace(/s$/, '');
+          const plural = word + 's';
+          if (words.includes(plural) || words.includes(singular)) return true;
+          
+          // For longer words, allow substring match within words
+          if (word.length >= 5) {
+            return words.some(w => w.length >= word.length && w.includes(word));
+          }
+          
+          return false;
+        };
+        
+        // Match if ingredient is in product name, category, or keywords using whole-word matching
         const isMatch = 
-          productNameLower.includes(ingredientLower) ||
-          ingredientLower.includes(productNameLower) ||
-          product.keywords.some(kw => 
-            ingredientLower.includes(kw.toLowerCase()) || 
-            kw.toLowerCase().includes(ingredientLower)
-          ) ||
+          matchesWord(productNameLower, ingredientLower) ||
+          matchesWord(ingredientLower, productNameLower) ||
+          product.keywords.some(kw => matchesWord(kw.toLowerCase(), ingredientLower)) ||
           (categoryLower.includes('vegetable') && ingredientLower.includes('vegetable')) ||
           (categoryLower.includes('dairy') && ingredientLower.includes('dairy')) ||
           (categoryLower.includes('meat') && ingredientLower.includes('meat')) ||
@@ -403,12 +421,36 @@ export const searchStoreProducts = async (
     const products = await getStoreProducts(storeId);
     
     for (const product of products) {
-      // Check if product matches any keyword
+      // Check if product matches any keyword - using whole-word matching
       const matchesKeyword = keywords.some(kw => {
         const kwLower = kw.toLowerCase();
-        return product.productName.toLowerCase().includes(kwLower) ||
-               product.keywords.some(pk => pk.toLowerCase().includes(kwLower)) ||
-               product.category.toLowerCase().includes(kwLower);
+        const productNameLower = product.productName.toLowerCase();
+        const categoryLower = product.category.toLowerCase();
+        
+        // Helper function for whole-word matching
+        const matchesWord = (text: string, word: string): boolean => {
+          // Split text into words and check for exact match or variations
+          const words = text.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
+          
+          // Check exact match
+          if (words.includes(word)) return true;
+          
+          // Check plural/singular variations
+          const singular = word.replace(/s$/, '');
+          const plural = word + 's';
+          if (words.includes(plural) || words.includes(singular)) return true;
+          
+          // For longer words, allow substring match within words
+          if (word.length >= 5) {
+            return words.some(w => w.length >= word.length && w.includes(word));
+          }
+          
+          return false;
+        };
+        
+        return matchesWord(productNameLower, kwLower) ||
+               matchesWord(categoryLower, kwLower) ||
+               product.keywords.some(pk => matchesWord(pk.toLowerCase(), kwLower));
       });
       
       if (matchesKeyword) {
