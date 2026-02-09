@@ -57,7 +57,6 @@ const ShoppingList: React.FC = () => {
   const [suggestions, setSuggestions] = useState<{ [ingredient: string]: StoreProductWithStore[] }>({});
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [selectedItemForSuggestion, setSelectedItemForSuggestion] = useState<string | null>(null);
-  const [pricingMode, setPricingMode] = useState<'cheapest' | 'best-store'>('cheapest');
   const [estimating, setEstimating] = useState(false);
   
   // Create API functions for bot to manipulate shopping list
@@ -281,9 +280,9 @@ const ShoppingList: React.FC = () => {
   const downloadList = () => {
     const lines: string[] = [];
 
-    // Header with estimated total (respect current pricing mode)
+    // Header with estimated total (per-item cheapest)
     if (pricedItemCount) {
-      lines.push(`Estimated total (${pricingMode === 'best-store' && bestStoreInfo.store ? `store: ${bestStoreInfo.store.name}` : 'per-item cheapest'}): ${formatCurrency(estimatedTotal)}`);
+      lines.push(`Estimated total (per-item cheapest): ${formatCurrency(estimatedTotal)}`);
     }
 
     for (const item of shoppingItems) {
@@ -294,20 +293,10 @@ const ShoppingList: React.FC = () => {
         continue;
       }
 
-      // try to resolve a price for the item according to mode
-      let resolved: { unit?: number; total?: number; store?: string } | null = null;
-      if (pricingMode === 'cheapest') {
-        const bp = getBestPrice(item.ingredient);
-        if (bp) resolved = { unit: bp, total: bp * qty };
-      } else if (pricingMode === 'best-store' && bestStoreInfo.store) {
-        const opts = suggestions[item.ingredient] ?? [];
-        const match = opts.find(o => (o.store.id || o.store.name) === (bestStoreInfo.store.id || bestStoreInfo.store.name));
-        const p = match ? Number(match.price || 0) : null;
-        if (p) resolved = { unit: p, total: p * qty, store: bestStoreInfo.store.name };
-      }
-
-      if (resolved) {
-        lines.push(`${base} x${qty} — ${formatCurrency(resolved.total)}${resolved.unit ? ` (${formatCurrency(resolved.unit)} each${resolved.store ? ' @ ' + resolved.store : ''})` : ''}`);
+      // resolve cheapest available price
+      const bp = getBestPrice(item.ingredient);
+      if (bp) {
+        lines.push(`${base} x${qty} — ${formatCurrency(bp * qty)} (${formatCurrency(bp)} each)`);
       } else {
         lines.push(`${base} x${qty} — NEED TO BUY`);
       }
@@ -328,7 +317,7 @@ const ShoppingList: React.FC = () => {
   const copyToClipboard = () => {
     const lines: string[] = [];
     if (pricedItemCount) {
-      lines.push(`Estimated total (${pricingMode === 'best-store' && bestStoreInfo.store ? `store: ${bestStoreInfo.store.name}` : 'per-item cheapest'}): ${formatCurrency(estimatedTotal)}`);
+      lines.push(`Estimated total (per-item cheapest): ${formatCurrency(estimatedTotal)}`);
     }
 
     for (const item of shoppingItems) {
@@ -339,19 +328,9 @@ const ShoppingList: React.FC = () => {
         continue;
       }
 
-      let resolved: { unit?: number; total?: number; store?: string } | null = null;
-      if (pricingMode === 'cheapest') {
-        const bp = getBestPrice(item.ingredient);
-        if (bp) resolved = { unit: bp, total: bp * qty };
-      } else if (pricingMode === 'best-store' && bestStoreInfo.store) {
-        const opts = suggestions[item.ingredient] ?? [];
-        const match = opts.find(o => (o.store.id || o.store.name) === (bestStoreInfo.store.id || bestStoreInfo.store.name));
-        const p = match ? Number(match.price || 0) : null;
-        if (p) resolved = { unit: p, total: p * qty, store: bestStoreInfo.store.name };
-      }
-
-      if (resolved) {
-        lines.push(`${base} x${qty} — ${formatCurrency(resolved.total)}${resolved.unit ? ` (${formatCurrency(resolved.unit)} each${resolved.store ? ' @ ' + resolved.store : ''})` : ''}`);
+      const bp = getBestPrice(item.ingredient);
+      if (bp) {
+        lines.push(`${base} x${qty} — ${formatCurrency(bp * qty)} (${formatCurrency(bp)} each)`);
       } else {
         lines.push(`${base} x${qty}`);
       }
@@ -361,14 +340,12 @@ const ShoppingList: React.FC = () => {
     toast({ title: 'Copied', description: 'Shopping list copied to clipboard' });
   };
 
-  // Send shopping list to remote webhook for price estimation
+  // Only webhook POST for Estimate price
   const postEstimate = async () => {
-    const apiUrl = '/api/estimate-price'; // server-side proxy (avoids CORS)
     if (shoppingItems.length === 0) {
       toast({ title: 'No items', description: 'Your shopping list is empty.', variant: 'destructive' });
       return;
     }
-
     setEstimating(true);
     try {
       const payload = {
@@ -379,47 +356,26 @@ const ShoppingList: React.FC = () => {
           inventoryQuantity: i.inventoryQuantity || null,
           checked: i.checked
         })),
-        pricingMode,
-        estimatedTotal: pricedItemCount ? estimatedTotal : null,
-        metadata: {
-          source: 'smart-pantry-chef',
-          timestamp: new Date().toISOString()
-        }
+        metadata: { source: 'smart-pantry-chef', timestamp: new Date().toISOString() }
       };
-
-      const res = await fetch(apiUrl, {
+      const res = await fetch('/api/estimate-price', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        credentials: 'same-origin'
+        body: JSON.stringify(payload)
       });
-
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`Proxy error: ${res.status} ${text}`);
       }
-
       const resp = await res.json().catch(() => null);
-      // server returns { success: true, data }
-      if (resp && resp.success) {
-        toast({ title: 'Estimate requested', description: 'Estimator received the shopping list — check the estimator for results.' });
-      } else {
-        toast({ title: 'Estimate sent', description: 'Estimator returned an unexpected response.' });
-      }
-
-      console.log('postEstimate (proxy) response:', resp);
-    } catch (err: any) {
-      console.error('postEstimate failed', err);
-      const isLikelyCORS = /Failed to fetch|NetworkError|CORS/.test(String(err.message || err));
-      const message = isLikelyCORS
-        ? 'Request blocked by the browser — make sure the dev server is running so the proxy endpoint is available.'
-        : String(err.message || 'Unknown error');
-
-      toast({ title: 'Estimate failed', description: message, variant: 'destructive' });
+      toast({ title: 'Estimate received', description: 'Webhook responded: ' + JSON.stringify(resp) });
+    } catch (err) {
+      console.error('Estimate webhook failed', err);
+      toast({ title: 'Estimate failed', description: String(err.message || err), variant: 'destructive' });
     } finally {
       setEstimating(false);
     }
-  }; 
+  };
 
   if (loading) {
     return (
@@ -458,36 +414,8 @@ const ShoppingList: React.FC = () => {
     })
     .filter(v => v > 0);
 
-  const storeMap = new Map<string, { store: any; total: number; itemsPriced: number }>();
-  for (const item of shoppingItems.filter(i => !i.hasInInventory)) {
-    const opts = suggestions[item.ingredient] ?? [];
-    const seenStores = new Set<string>();
-    for (const o of opts) {
-      const sid = o.store.id || o.store.name || 'unknown';
-      const price = Number(o.price || 0);
-      if (!sid || !price || isNaN(price) || price <= 0) continue;
-      if (!storeMap.has(sid)) storeMap.set(sid, { store: o.store, total: 0, itemsPriced: 0 });
-      const cur = storeMap.get(sid)!;
-      cur.total += price * (item.quantity || 1);
-      if (!seenStores.has(sid)) {
-        cur.itemsPriced += 1;
-        seenStores.add(sid);
-      }
-    }
-  }
-
-  let bestStoreInfo: { store?: any; total: number; itemsPriced: number } = { total: 0, itemsPriced: 0 };
-  if (storeMap.size > 0) {
-    const candidates = Array.from(storeMap.values());
-    candidates.sort((a, b) => {
-      if (b.itemsPriced !== a.itemsPriced) return b.itemsPriced - a.itemsPriced;
-      return a.total - b.total;
-    });
-    bestStoreInfo = { store: candidates[0].store, total: candidates[0].total, itemsPriced: candidates[0].itemsPriced };
-  }
-
-  const estimatedTotal = pricingMode === 'best-store' ? bestStoreInfo.total : cheapestLineTotals.reduce((s, v) => s + v, 0);
-  const pricedItemCount = pricingMode === 'best-store' ? bestStoreInfo.itemsPriced : cheapestLineTotals.length;
+  const estimatedTotal = cheapestLineTotals.reduce((s, v) => s + v, 0);
+  const pricedItemCount = cheapestLineTotals.length;
 
 
 
@@ -655,36 +583,11 @@ const ShoppingList: React.FC = () => {
                           <p className="text-xs text-muted-foreground">Based on suggestions; uses selected pricing mode</p>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <div className="text-xs text-muted-foreground">Mode:</div>
-                          <div className="rounded-md border bg-transparent p-1">
-                            <button
-                              className={cn('px-2 py-1 text-sm rounded', pricingMode === 'cheapest' ? 'bg-primary text-white' : 'hover:bg-accent')}
-                              onClick={() => setPricingMode('cheapest')}
-                            >
-                              Per-item cheapest
-                            </button>
-                            <button
-                              className={cn('ml-1 px-2 py-1 text-sm rounded', pricingMode === 'best-store' ? 'bg-primary text-white' : 'hover:bg-accent')}
-                              onClick={() => setPricingMode('best-store')}
-                            >
-                              Best single store
-                            </button>
-                          </div>
-                        </div>
+                        {/* Pricing mode UI removed */}
                       </div>
 
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <div>
-                          {pricingMode === 'best-store' && bestStoreInfo.store ? (
-                            <>
-                              <div>Best store: <span className="font-medium text-foreground">{bestStoreInfo.store.name}</span></div>
-                              <div className="mt-1">{bestStoreInfo.itemsPriced}/{missingCount} items priced at this store</div>
-                            </>
-                          ) : (
-                            <div>{pricedItemCount}/{missingCount} items priced</div>
-                          )}
-                        </div>
+                        {/* Pricing mode conditional removed */}
                         <div className="text-right text-xs text-muted-foreground">Assumes quantity where provided</div>
                       </div>
                     </div> 
@@ -827,34 +730,15 @@ const ShoppingList: React.FC = () => {
                         {!item.isEditing && !item.hasInInventory && (
                           <div className="ml-4 text-right min-w-[120px]">
                             {(() => {
-                              if (pricingMode === 'cheapest') {
-                                const bp = getBestPrice(item.ingredient);
-                                return bp ? (
-                                  <div>
-                                    <div className="text-xs text-muted-foreground">{formatCurrency(bp)} each</div>
-                                    <div className="text-sm font-semibold">{formatCurrency(bp * (item.quantity || 1))}</div>
-                                  </div>
-                                ) : (
-                                  <div className="text-xs text-muted-foreground">Price: N/A</div>
-                                );
-                              }
-
-                              // best-store mode: find price from chosen store
-                              if (pricingMode === 'best-store' && bestStoreInfo.store) {
-                                const opts = suggestions[item.ingredient] ?? [];
-                                const match = opts.find(o => (o.store.id || o.store.name) === (bestStoreInfo.store.id || bestStoreInfo.store.name));
-                                const p = match ? Number(match.price || 0) : null;
-                                return p ? (
-                                  <div>
-                                    <div className="text-xs text-muted-foreground">{formatCurrency(p)} each @ {bestStoreInfo.store.name}</div>
-                                    <div className="text-sm font-semibold">{formatCurrency(p * (item.quantity || 1))}</div>
-                                  </div>
-                                ) : (
-                                  <div className="text-xs text-muted-foreground">Not available at selected store</div>
-                                );
-                              }
-
-                              return null;
+                              const bp = getBestPrice(item.ingredient);
+                              return bp ? (
+                                <div>
+                                  <div className="text-xs text-muted-foreground">{formatCurrency(bp)} each</div>
+                                  <div className="text-sm font-semibold">{formatCurrency(bp * (item.quantity || 1))}</div>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-muted-foreground">Price: N/A</div>
+                              );
                             })()}
                           </div>
                         )}

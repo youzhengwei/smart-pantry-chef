@@ -7,6 +7,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { scrapeAllStores, STORES } from './scraper.js';
+import fetch from 'node-fetch';
 
 dotenv.config();
 
@@ -40,7 +41,9 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Allow larger payloads from the frontend (shopping lists with many items).
+// If you still hit size limits, increase this value further.
+app.use(express.json({ limit: '1mb' }));
 
 // Helper Functions
 const buildPrompt = (inventoryItems, strictOnly, preferenceText) => {
@@ -444,28 +447,17 @@ app.post('/api/search-products', async (req, res) => {
   }
 });
 
-// POST /api/estimate-price - proxy to remote estimator webhook (avoids CORS, hides webhook URL)
+// Proxy endpoint for estimate price (avoids CORS)
 app.post('/api/estimate-price', async (req, res) => {
   try {
-    const webhook = process.env.N8N_ESTIMATE_WEBHOOK_URL || 'https://n8ngc.codeblazar.org/webhook/b314b45d-559f-44de-b76b-d0d1d688d15e';
-    console.log('[estimate-price] forwarding request to webhook:', webhook);
-    console.log('[estimate-price] payload preview:', JSON.stringify(req.body).slice(0, 200));
-
-    const response = await fetch(webhook, {
+    const webhookUrl = 'https://n8ngc.codeblazar.org/webhook/b314b45d-559f-44de-b76b-d0d1d688d15e';
+    const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body)
     });
-
-    console.log('[estimate-price] webhook status', response.status);
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      console.error('[estimate-price] webhook error body:', text);
-      return res.status(502).json({ error: 'Estimator webhook returned an error', details: text });
-    }
-
     const data = await response.json().catch(() => null);
-    res.json({ success: true, data });
+    res.status(response.status).json(data);
   } catch (err) {
     console.error('[estimate-price] proxy failed', err);
     res.status(500).json({ error: 'Estimate proxy failed', details: String(err) });
