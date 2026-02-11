@@ -20,7 +20,9 @@ import {
   Download,
   Copy,
   Lightbulb,
-  TrendingDown
+  TrendingDown,
+  Edit2,
+  X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,7 +31,10 @@ interface ShoppingItem {
   recipes: string[]; // which recipes need this
   hasInInventory: boolean;
   inventoryQuantity?: string;
+  quantity: number; // editable quantity for estimates
   checked: boolean;
+  isEditing?: boolean;
+  editValue?: string;
 }
 
 interface SelectedRecipe {
@@ -52,6 +57,52 @@ const ShoppingList: React.FC = () => {
   const [suggestions, setSuggestions] = useState<{ [ingredient: string]: StoreProductWithStore[] }>({});
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [selectedItemForSuggestion, setSelectedItemForSuggestion] = useState<string | null>(null);
+  const [estimating, setEstimating] = useState(false);
+  
+  // Create API functions for bot to manipulate shopping list
+  const shoppingListApi = {
+    removeItem: (ingredient: string) => {
+      console.log(`Bot requested to remove: ${ingredient}`);
+      removeItem(ingredient);
+    },
+    addItem: (ingredient: string) => {
+      console.log(`Bot requested to add: ${ingredient}`);
+      setShoppingItems(prev => [...prev, {
+        ingredient: ingredient.trim(),
+        recipes: [],
+        hasInInventory: false,
+        quantity: 1,
+        checked: false
+      }]);
+    },
+
+
+    updateItem: (ingredient: string, newIngredient: string) => {
+      console.log(`Bot requested to update: ${ingredient} -> ${newIngredient}`);
+      setShoppingItems(prev =>
+        prev.map(item =>
+          item.ingredient === ingredient
+            ? { ...item, ingredient: newIngredient.trim() }
+            : item
+        )
+      );
+    },
+    clearList: () => {
+      console.log('Bot requested to clear list');
+      clearList();
+    },
+    getList: () => {
+      return shoppingItems.map(item => ({
+        ingredient: item.ingredient,
+        recipes: item.recipes,
+        hasInInventory: item.hasInInventory,
+        quantity: item.quantity,
+        checked: item.checked
+      }));
+    }
+  };
+
+  /* Botpress integration removed — webchat initialization omitted. */
 
   useEffect(() => {
     loadData();
@@ -136,6 +187,7 @@ const ShoppingList: React.FC = () => {
         recipes: Array.from(recipes),
         hasInInventory: !!inventoryItem,
         inventoryQuantity: inventoryItem ? `${inventoryItem.quantity} ${inventoryItem.quantityUnit}` : undefined,
+        quantity: 1,
         checked: false
       };
     });
@@ -184,18 +236,75 @@ const ShoppingList: React.FC = () => {
     setShoppingItems(prev => prev.filter(item => item.ingredient !== ingredient));
   };
 
+  const startEditingItem = (ingredient: string) => {
+    setShoppingItems(prev =>
+      prev.map(item =>
+        item.ingredient === ingredient 
+          ? { ...item, isEditing: true, editValue: item.ingredient }
+          : item
+      )
+    );
+  };
+
+  const saveEditedItem = (oldIngredient: string) => {
+    setShoppingItems(prev =>
+      prev.map(item => {
+        if (item.ingredient === oldIngredient && item.editValue && item.editValue.trim()) {
+          return {
+            ...item,
+            ingredient: item.editValue.trim(),
+            isEditing: false,
+            editValue: undefined
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  const cancelEditingItem = (ingredient: string) => {
+    setShoppingItems(prev =>
+      prev.map(item =>
+        item.ingredient === ingredient
+          ? { ...item, isEditing: false, editValue: undefined }
+          : item
+      )
+    );
+  };
+
   const clearList = () => {
     setShoppingItems([]);
     setSelectedRecipes([]);
   };
 
   const downloadList = () => {
-    const list = shoppingItems
-      .map(item => `${item.checked ? '✓' : '○'} ${item.ingredient}${item.hasInInventory ? ` (Have: ${item.inventoryQuantity})` : ' (NEED TO BUY)'}`)
-      .join('\n');
+    const lines: string[] = [];
 
+    // Header with estimated total (per-item cheapest)
+    if (pricedItemCount) {
+      lines.push(`Estimated total (per-item cheapest): ${formatCurrency(estimatedTotal)}`);
+    }
+
+    for (const item of shoppingItems) {
+      const qty = item.quantity || 1;
+      const base = `${item.checked ? '✓' : '○'} ${item.ingredient}`;
+      if (item.hasInInventory) {
+        lines.push(`${base} — In inventory: ${item.inventoryQuantity}`);
+        continue;
+      }
+
+      // resolve cheapest available price
+      const bp = getBestPrice(item.ingredient);
+      if (bp) {
+        lines.push(`${base} x${qty} — ${formatCurrency(bp * qty)} (${formatCurrency(bp)} each)`);
+      } else {
+        lines.push(`${base} x${qty} — NEED TO BUY`);
+      }
+    }
+
+    const content = lines.join('\n');
     const element = document.createElement('a');
-    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(list));
+    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(content));
     element.setAttribute('download', 'shopping-list.txt');
     element.style.display = 'none';
     document.body.appendChild(element);
@@ -206,12 +315,66 @@ const ShoppingList: React.FC = () => {
   };
 
   const copyToClipboard = () => {
-    const list = shoppingItems
-      .map(item => `${item.checked ? '✓' : '•'} ${item.ingredient}${item.hasInInventory ? ` (Have: ${item.inventoryQuantity})` : ''}`)
-      .join('\n');
+    const lines: string[] = [];
+    if (pricedItemCount) {
+      lines.push(`Estimated total (per-item cheapest): ${formatCurrency(estimatedTotal)}`);
+    }
 
-    navigator.clipboard.writeText(list);
+    for (const item of shoppingItems) {
+      const qty = item.quantity || 1;
+      const base = `${item.checked ? '✓' : '•'} ${item.ingredient}`;
+      if (item.hasInInventory) {
+        lines.push(`${base} — In inventory: ${item.inventoryQuantity}`);
+        continue;
+      }
+
+      const bp = getBestPrice(item.ingredient);
+      if (bp) {
+        lines.push(`${base} x${qty} — ${formatCurrency(bp * qty)} (${formatCurrency(bp)} each)`);
+      } else {
+        lines.push(`${base} x${qty}`);
+      }
+    }
+
+    navigator.clipboard.writeText(lines.join('\n'));
     toast({ title: 'Copied', description: 'Shopping list copied to clipboard' });
+  };
+
+  // Only webhook POST for Estimate price
+  const postEstimate = async () => {
+    if (shoppingItems.length === 0) {
+      toast({ title: 'No items', description: 'Your shopping list is empty.', variant: 'destructive' });
+      return;
+    }
+    setEstimating(true);
+    try {
+      const payload = {
+        items: shoppingItems.map(i => ({
+          ingredient: i.ingredient,
+          quantity: i.quantity || 1,
+          hasInInventory: i.hasInInventory,
+          inventoryQuantity: i.inventoryQuantity || null,
+          checked: i.checked
+        })),
+        metadata: { source: 'smart-pantry-chef', timestamp: new Date().toISOString() }
+      };
+      const res = await fetch('/api/estimate-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Proxy error: ${res.status} ${text}`);
+      }
+      const resp = await res.json().catch(() => null);
+      toast({ title: 'Estimate received', description: 'Webhook responded: ' + JSON.stringify(resp) });
+    } catch (err) {
+      console.error('Estimate webhook failed', err);
+      toast({ title: 'Estimate failed', description: String(err.message || err), variant: 'destructive' });
+    } finally {
+      setEstimating(false);
+    }
   };
 
   if (loading) {
@@ -232,6 +395,29 @@ const ShoppingList: React.FC = () => {
 
   const checkedCount = shoppingItems.filter(item => item.checked).length;
   const missingCount = shoppingItems.filter(item => !item.hasInInventory).length;
+
+  // Pricing helpers (derived from `suggestions` and current `pricingMode`)
+  const formatCurrency = (v: number) => new Intl.NumberFormat('en-SG', { style: 'currency', currency: 'SGD' }).format(v);
+  const getBestPrice = (ingredient: string): number | null => {
+    const opts = suggestions[ingredient];
+    if (!opts || opts.length === 0) return null;
+    const prices = opts.map(o => Number(o.price || 0)).filter(p => !isNaN(p) && p > 0);
+    if (prices.length === 0) return null;
+    return Math.min(...prices);
+  };
+
+  const cheapestLineTotals: number[] = shoppingItems
+    .filter(i => !i.hasInInventory)
+    .map(i => {
+      const bp = getBestPrice(i.ingredient);
+      return bp ? bp * (i.quantity || 1) : 0;
+    })
+    .filter(v => v > 0);
+
+  const estimatedTotal = cheapestLineTotals.reduce((s, v) => s + v, 0);
+  const pricedItemCount = cheapestLineTotals.length;
+
+
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -377,15 +563,34 @@ const ShoppingList: React.FC = () => {
               ) : (
                 <>
                   {/* Stats */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded bg-muted p-2">
-                      <p className="text-muted-foreground">To Buy</p>
-                      <p className="font-semibold text-lg">{missingCount}</p>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded bg-muted p-2">
+                        <p className="text-muted-foreground">To Buy</p>
+                        <p className="font-semibold text-lg">{missingCount}</p>
+                      </div>
+                      <div className="rounded bg-muted p-2">
+                        <p className="text-muted-foreground">Done</p>
+                        <p className="font-semibold text-lg">{checkedCount}/{shoppingItems.length}</p>
+                      </div>
                     </div>
-                    <div className="rounded bg-muted p-2">
-                      <p className="text-muted-foreground">Done</p>
-                      <p className="font-semibold text-lg">{checkedCount}/{shoppingItems.length}</p>
-                    </div>
+
+                    <div className="rounded bg-muted p-3 text-sm space-y-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-muted-foreground">Estimated total</p>
+                          <p className="font-semibold">{pricedItemCount ? formatCurrency(estimatedTotal) : 'N/A'}</p>
+                          <p className="text-xs text-muted-foreground">Based on suggestions; uses selected pricing mode</p>
+                        </div>
+
+                        {/* Pricing mode UI removed */}
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        {/* Pricing mode conditional removed */}
+                        <div className="text-right text-xs text-muted-foreground">Assumes quantity where provided</div>
+                      </div>
+                    </div> 
                   </div>
 
                   {/* Items */}
@@ -394,42 +599,149 @@ const ShoppingList: React.FC = () => {
                       <div
                         key={item.ingredient}
                         className={cn(
-                          "flex items-start gap-2 p-2 rounded border transition-all group",
-                          item.checked ? "bg-muted/50 border-muted" : "hover:bg-accent",
-                          !item.hasInInventory ? "border-red-200 dark:border-red-900" : ""
+                          "flex items-center gap-2 p-2 rounded border transition-all group",
+                          item.checked && !item.isEditing ? "bg-muted/50 border-muted" : "hover:bg-accent",
+                          !item.hasInInventory && !item.isEditing ? "border-red-200 dark:border-red-900" : ""
                         )}
                       >
-                        <Checkbox
-                          checked={item.checked}
-                          onChange={() => toggleItemChecked(item.ingredient)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className={cn(
-                            "text-sm font-medium truncate",
-                            item.checked && "line-through text-muted-foreground"
-                          )}>
-                            {item.ingredient}
-                          </p>
-                          {item.hasInInventory && (
-                            <p className="text-xs text-muted-foreground">
-                              Have: {item.inventoryQuantity}
+                        {!item.isEditing && (
+                          <Checkbox
+                            checked={item.checked}
+                            onChange={() => toggleItemChecked(item.ingredient)}
+                            className="mt-0.5"
+                          />
+                        )}
+                        
+                        {item.isEditing ? (
+                          <div className="flex-1 flex items-center gap-2 min-w-0">
+                            <Input
+                              value={item.editValue || ''}
+                              onChange={(e) => {
+                                setShoppingItems(prev =>
+                                  prev.map(i =>
+                                    i.ingredient === item.ingredient
+                                      ? { ...i, editValue: e.target.value }
+                                      : i
+                                  )
+                                );
+                              }}
+                              placeholder="Item name"
+                              className="h-8 text-sm"
+                              autoFocus
+                            />
+
+                            <Input
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={item.quantity}
+                              onChange={(e) => {
+                                const v = Math.max(1, Number(e.target.value) || 1);
+                                setShoppingItems(prev => prev.map(i => i.ingredient === item.ingredient ? { ...i, quantity: v } : i));
+                              }}
+                              className="w-20 h-8 text-sm"
+                            />
+
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => saveEditedItem(item.ingredient)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Check className="h-3 w-3 text-green-600" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => cancelEditingItem(item.ingredient)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-3 w-3 text-red-600" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex-1 min-w-0">
+                            <p className={cn(
+                              "text-sm font-medium truncate",
+                              item.checked && "line-through text-muted-foreground"
+                            )}>
+                              {item.ingredient}
                             </p>
-                          )}
-                          {!item.hasInInventory && (
-                            <p className="text-xs text-red-600 dark:text-red-400 font-medium">
-                              Need to buy
-                            </p>
-                          )}
+                            {item.hasInInventory && (
+                              <p className="text-xs text-muted-foreground">
+                                In inventory: {item.inventoryQuantity}
+                              </p>
+                            )}
+
+                            {!item.hasInInventory && (
+                              <>
+                                <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+                                  Need to buy
+                                </p>
+                                {/* per-item estimated price (from smart suggestions) */}
+                                {(() => {
+                                  const bp = getBestPrice(item.ingredient);
+                                  return bp ? (
+                                    <p className="text-sm font-semibold mt-1">{formatCurrency(bp)}</p>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground mt-1">Price: N/A</p>
+                                  );
+                                })()}
+                              </>
+                            )} 
+                          </div>
+                        )}
+                        
+                        {/* quantity input + action buttons */}
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={item.quantity}
+                            onChange={(e) => {
+                              const v = Math.max(1, Number(e.target.value) || 1);
+                              setShoppingItems(prev => prev.map(i => i.ingredient === item.ingredient ? { ...i, quantity: v } : i));
+                            }}
+                            className="w-16 h-8 text-sm"
+                          />
+
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => startEditingItem(item.ingredient)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Edit2 className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeItem(item.ingredient)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeItem(item.ingredient)}
-                          className="opacity-0 group-hover:opacity-100 h-6 w-6 p-0"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+
+                        {/* show per-item price / line total when available */}
+                        {!item.isEditing && !item.hasInInventory && (
+                          <div className="ml-4 text-right min-w-[120px]">
+                            {(() => {
+                              const bp = getBestPrice(item.ingredient);
+                              return bp ? (
+                                <div>
+                                  <div className="text-xs text-muted-foreground">{formatCurrency(bp)} each</div>
+                                  <div className="text-sm font-semibold">{formatCurrency(bp * (item.quantity || 1))}</div>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-muted-foreground">Price: N/A</div>
+                              );
+                            })()}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -445,6 +757,7 @@ const ShoppingList: React.FC = () => {
                       <Copy className="h-3 w-3 mr-1" />
                       Copy
                     </Button>
+
                     <Button
                       size="sm"
                       variant="outline"
@@ -453,6 +766,20 @@ const ShoppingList: React.FC = () => {
                     >
                       <Download className="h-3 w-3 mr-1" />
                       Download
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      onClick={postEstimate}
+                      disabled={estimating || shoppingItems.length === 0}
+                      className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      {estimating ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3 mr-1" />
+                      )}
+                      Estimate price
                     </Button>
                   </div>
 

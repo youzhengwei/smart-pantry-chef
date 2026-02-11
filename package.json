@@ -15,7 +15,7 @@
     "cors-proxy": "node cors-proxy.js",
     "start": "node server/server.js",
     "test-scraper": "node server/test-scraper.js",
-    "postinstall": "node -e \"try { require('puppeteer').executablePath(); console.log('Puppeteer Chrome found'); } catch(e) { console.log('Installing Chrome for Puppeteer...'); require('child_process').execSync('npx puppeteer browsers install chrome', {stdio: 'inherit'}); }\""
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

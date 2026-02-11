@@ -560,8 +560,9 @@ const StoreLocator: React.FC = () => {
     console.log('Cleaned query:', cleanedQuery);
     
     try {
-      // Use local scraper endpoint for stricter matching
-      const proxyUrl = 'http://localhost:3000/search-products';
+      // Use same-origin scraper endpoint (or override via env)
+      const scraperBaseUrl = (import.meta.env.VITE_SCRAPER_URL || '').replace(/\/$/, '');
+      const proxyUrl = scraperBaseUrl ? `${scraperBaseUrl}/search-products` : '/search-products';
 
       console.log('searchProducts - Fetching from proxy:', proxyUrl);
       console.log('searchProducts - Query:', cleanedQuery);
@@ -681,8 +682,9 @@ const StoreLocator: React.FC = () => {
     setWebhookResults([]);
 
     try {
-      // Use local scraper endpoint for stricter matching
-      const proxyUrl = 'http://localhost:3000/search-products';
+      // Use same-origin scraper endpoint (or override via env)
+      const scraperBaseUrl = (import.meta.env.VITE_SCRAPER_URL || '').replace(/\/$/, '');
+      const proxyUrl = scraperBaseUrl ? `${scraperBaseUrl}/search-products` : '/search-products';
       
       console.log('Fetching from proxy:', proxyUrl);
       console.log('Query:', cleanedQuery);
@@ -786,7 +788,7 @@ const StoreLocator: React.FC = () => {
           document.createElement('div')
         );
 
-        const openDestination = (place: google.maps.places.PlaceResult, fallbackLabel?: string) => {
+        const openDestination = (place: any, fallbackLabel?: string) => {
           const dest = place.geometry?.location;
           if (!dest) {
             toast({
@@ -822,7 +824,7 @@ const StoreLocator: React.FC = () => {
 
           service.nearbySearch(
             fallbackRequest,
-            (fallbackResults: google.maps.places.PlaceResult[] | null, fallbackStatus: google.maps.places.PlacesServiceStatus) => {
+            (fallbackResults: any[] | null, fallbackStatus: any) => {
               if (fallbackStatus === google.maps.places.PlacesServiceStatus.OK && fallbackResults && fallbackResults.length > 0) {
                 openDestination(fallbackResults[0], 'Nearest supermarket');
               } else {
@@ -845,7 +847,7 @@ const StoreLocator: React.FC = () => {
 
         service.nearbySearch(
           request,
-          (results: google.maps.places.PlaceResult[] | null, status: google.maps.places.PlacesServiceStatus) => {
+          (results: any[] | null, status: any) => {
             if (status !== google.maps.places.PlacesServiceStatus.OK || !results || results.length === 0) {
               fallbackToNearestSupermarket();
               return;

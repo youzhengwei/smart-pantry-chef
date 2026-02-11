@@ -7,6 +7,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { scrapeAllStores, STORES } from './scraper.js';
+import fetch from 'node-fetch';
 
 dotenv.config();
 
@@ -41,6 +42,10 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve static frontend assets from Vite build output
+const distPath = join(__dirname, '../dist');
+app.use(express.static(distPath));
 
 // Helper Functions
 const buildPrompt = (inventoryItems, strictOnly, preferenceText) => {
@@ -444,7 +449,29 @@ app.post('/api/search-products', async (req, res) => {
   }
 });
 
-// Error handling middleware
+// Proxy endpoint for estimate price (avoids CORS)
+app.post('/api/estimate-price', async (req, res) => {
+  try {
+    const webhookUrl = 'https://n8ngc.codeblazar.org/webhook/b314b45d-559f-44de-b76b-d0d1d688d15e';
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json().catch(() => null);
+    res.status(response.status).json(data);
+  } catch (err) {
+    console.error('[estimate-price] proxy failed', err);
+    res.status(500).json({ error: 'Estimate proxy failed', details: String(err) });
+  }
+});
+
+// SPA fallback - serve index.html for all non-API routes (MUST be before error handling)
+app.use((req, res) => {
+  res.sendFile(join(distPath, 'index.html'));
+});
+
+// Error handling middleware (MUST be last)
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
   res.status(500).json({

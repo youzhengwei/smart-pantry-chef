@@ -1,23 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchSavedRecipes, addManualRecipe } from '@/services/aiRecipeService';
-import { AIGeneratedRecipe } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import RecipeCard from '@/components/RecipeCard';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Heart,
-  Loader2,
-  RefreshCw,
-  ChefHat,
-  Plus
-} from 'lucide-react';
+import { Loader2, Heart, Plus, ChefHat, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import RecipeCard from '@/components/RecipeCard';
+import { getSavedRecipes } from '@/services/firebaseService';
+import { AIGeneratedRecipe } from '@/types';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Card, CardContent } from '@/components/ui/card';
 
 const Favourites: React.FC = () => {
   const { user } = useAuth();
@@ -45,7 +39,7 @@ const Favourites: React.FC = () => {
     setLoading(true);
     try {
       console.log('Loading saved recipes for user:', user.uid);
-      const savedRecipes = await fetchSavedRecipes(user.uid);
+      const savedRecipes = await getSavedRecipes(user.uid);
       console.log('Loaded saved recipes:', savedRecipes);
       setFavourites(savedRecipes);
     } catch (error) {
