@@ -43,6 +43,10 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Serve static frontend assets from Vite build output
+const distPath = join(__dirname, '../dist');
+app.use(express.static(distPath));
+
 // Helper Functions
 const buildPrompt = (inventoryItems, strictOnly, preferenceText) => {
   const ingredientList = inventoryItems.map(item =>
@@ -464,7 +468,7 @@ app.post('/api/estimate-price', async (req, res) => {
 
 // SPA fallback - serve index.html for all non-API routes (MUST be before error handling)
 app.use((req, res) => {
-  res.sendFile(join(__dirname, '../dist/index.html'));
+  res.sendFile(join(distPath, 'index.html'));
 });
 
 // Error handling middleware (MUST be last)
