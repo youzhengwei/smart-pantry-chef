@@ -322,6 +322,47 @@ export const fetchAIGeneratedRecipes = async (userId: string): Promise<AIGenerat
   }
 };
 
+// Fetch all recipes in the recipes collection for a user (any source)
+export const fetchUserRecipes = async (userId: string): Promise<AIGeneratedRecipe[]> => {
+  try {
+    const q = query(
+      collection(db, 'recipes'),
+      where('userId', '==', userId)
+    );
+
+    const querySnapshot = await getDocs(q);
+    const recipes = querySnapshot.docs
+      .map(doc => {
+        try {
+          return {
+            id: doc.id,
+            ...doc.data()
+          } as AIGeneratedRecipe;
+        } catch (e) {
+          console.error('Error mapping user recipe:', e, doc.data());
+          return null;
+        }
+      })
+      .filter((recipe): recipe is AIGeneratedRecipe => {
+        if (!recipe) return false;
+        if (!recipe.name) return false;
+        if (!Array.isArray(recipe.ingredients)) return false;
+        return true;
+      });
+
+    recipes.sort((a, b) => {
+      const dateA = a.createdAt instanceof Timestamp ? a.createdAt.toDate().getTime() : 0;
+      const dateB = b.createdAt instanceof Timestamp ? b.createdAt.toDate().getTime() : 0;
+      return dateB - dateA;
+    });
+
+    return recipes;
+  } catch (error) {
+    console.error('Error in fetchUserRecipes:', error);
+    throw error;
+  }
+};
+
 // Add a manual recipe directly to favorites
 export const addManualRecipe = async (
   userId: string,
