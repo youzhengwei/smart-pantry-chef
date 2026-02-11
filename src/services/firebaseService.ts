@@ -70,8 +70,18 @@ export const addInventoryItem = async (item: Omit<InventoryItem, 'id' | 'status'
 };
 
 export const updateInventoryItem = async (id: string, updates: Partial<InventoryItem>): Promise<void> => {
+  if (!id) {
+    throw new Error('Item ID is required for update');
+  }
+
   const docRef = doc(db, 'inventory', id);
   
+  // Verify document exists
+  const docSnap = await getDoc(docRef);
+  if (!docSnap.exists()) {
+    throw new Error('Item not found');
+  }
+
   // Recalculate status and isLowStock if relevant fields changed
   const updateData: Partial<InventoryItem> = { ...updates };
   
@@ -80,8 +90,7 @@ export const updateInventoryItem = async (id: string, updates: Partial<Inventory
   }
   
   if (updates.quantity !== undefined || updates.reorderThreshold !== undefined) {
-    const currentDoc = await getDoc(docRef);
-    const current = currentDoc.data() as InventoryItem;
+    const current = docSnap.data() as InventoryItem;
     const quantity = updates.quantity ?? current.quantity;
     const threshold = updates.reorderThreshold ?? current.reorderThreshold;
     updateData.isLowStock = isLowStock(quantity, threshold);
@@ -91,6 +100,9 @@ export const updateInventoryItem = async (id: string, updates: Partial<Inventory
 };
 
 export const deleteInventoryItem = async (id: string): Promise<void> => {
+  if (!id) {
+    throw new Error('Item ID is required for deletion');
+  }
   await deleteDoc(doc(db, 'inventory', id));
 };
 

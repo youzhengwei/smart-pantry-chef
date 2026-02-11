@@ -69,7 +69,7 @@ const Inventory: React.FC = () => {
     category: '',
     quantity: 1,
     quantityUnit: 'pcs',
-    expiryDate: '',
+    expiryDate: new Date().toISOString().split('T')[0],
     storage: 'fridge' as 'fridge' | 'freezer' | 'pantry',
     reorderThreshold: 2,
     defaultShelfLifeDays: undefined as number | undefined
@@ -88,7 +88,7 @@ const Inventory: React.FC = () => {
       category: '',
       quantity: 1,
       quantityUnit: 'pcs',
-      expiryDate: '',
+      expiryDate: new Date().toISOString().split('T')[0],
       storage: 'fridge',
       reorderThreshold: 2,
       defaultShelfLifeDays: undefined
@@ -146,7 +146,7 @@ const Inventory: React.FC = () => {
         quantityUnit: item.quantityUnit,
         expiryDate: expiryDate.toISOString().split('T')[0],
         storage: item.storage,
-        reorderThreshold: item.reorderThreshold,
+        reorderThreshold: item.reorderThreshold ?? 2,
         defaultShelfLifeDays: undefined
       });
 
@@ -164,7 +164,43 @@ const Inventory: React.FC = () => {
   // ------------------------- SAVE ITEM -------------------------
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user) {
+      toast({
+        title: 'Error',
+        description: 'You must be logged in.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // Validation
+    if (!formData.name.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Item name is required.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!formData.expiryDate) {
+      toast({
+        title: 'Validation Error',
+        description: 'Expiry date is required.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (formData.quantity <= 0) {
+      toast({
+        title: 'Validation Error',
+        description: 'Quantity must be greater than 0.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -195,24 +231,32 @@ const Inventory: React.FC = () => {
         quantityUnit: formData.quantityUnit,
         expiryDate: Timestamp.fromDate(new Date(formData.expiryDate)),
         storage: formData.storage,
-        reorderThreshold: formData.reorderThreshold
+        reorderThreshold: formData.reorderThreshold ?? 2
       };
 
       if (editingItem) {
         await updateInventoryItem(editingItem.id!, itemData);
-        toast({ title: 'Item updated!' });
+        toast({ 
+          title: 'Item updated!',
+          description: 'Your inventory has been updated successfully.'
+        });
       } else {
         await addInventoryItem(itemData);
-        toast({ title: 'Item added!' });
+        toast({ 
+          title: 'Item added!',
+          description: 'New item added to your inventory.'
+        });
       }
 
       await loadInventory();
       setIsDialogOpen(false);
       resetForm();
 
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Save error:', error);
       toast({
         title: 'Save failed',
+        description: error?.message || 'Please try again.',
         variant: 'destructive'
       });
     } finally {
@@ -226,10 +270,15 @@ const Inventory: React.FC = () => {
     try {
       await deleteInventoryItem(id);
       await loadInventory();
-      toast({ title: 'Deleted' });
-    } catch (error) {
+      toast({ 
+        title: 'Deleted',
+        description: 'Item has been removed from your inventory.'
+      });
+    } catch (error: any) {
+      console.error('Delete error:', error);
       toast({
         title: 'Delete failed',
+        description: error?.message || 'Please try again.',
         variant: 'destructive'
       });
     }
@@ -447,7 +496,7 @@ const Inventory: React.FC = () => {
         {/* PRODUCT SELECTION DIALOG */}
         <Dialog open={isProductSelectOpen} onOpenChange={setIsProductSelectOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => handleOpenDialog()} className="gap-2">
+            <Button onClick={() => handleOpenDialog()} className="gap-2 hidden">
               <Plus className="h-4 w-4" />
               Add Item
             </Button>
@@ -510,7 +559,7 @@ const Inventory: React.FC = () => {
 
         {/* ADD/EDIT ITEM DIALOG */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="bg-card sm:max-w-md animate-in slide-in-from-left-1/2 duration-300">
+          <DialogContent className="bg-card sm:max-w-md">
             <DialogHeader>
               <DialogTitle>
                 {editingItem ? 'Edit Item' : selectedProduct ? 'Add Item' : 'Add New Item'}
