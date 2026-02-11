@@ -4,7 +4,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Heart, Plus, ChefHat, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import RecipeCard from '@/components/RecipeCard';
-import { getSavedRecipes } from '@/services/firebaseService';
+import { fetchSavedRecipes, addManualRecipe } from '@/services/aiRecipeService';
 import { AIGeneratedRecipe } from '@/types';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -39,7 +39,7 @@ const Favourites: React.FC = () => {
     setLoading(true);
     try {
       console.log('Loading saved recipes for user:', user.uid);
-      const savedRecipes = await getSavedRecipes(user.uid);
+      const savedRecipes = await fetchSavedRecipes(user.uid);
       console.log('Loaded saved recipes:', savedRecipes);
       setFavourites(savedRecipes);
     } catch (error) {
