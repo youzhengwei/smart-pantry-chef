@@ -183,18 +183,18 @@ const StoreLocator: React.FC = () => {
 
       if (selectedStoreType === 'convenience_store') {
         // For convenience stores, do two searches: general convenience stores + specific chains
-        const convenienceQuery = `convenience stores in ${selectedArea.trim()}, Hong Kong or Singapore`;
-        const chainsQuery = `7-eleven or cheers or choices in ${selectedArea.trim()}, Hong Kong or Singapore`;
+        const convenienceQuery = `convenience stores in ${selectedArea.trim()}, Singapore`;
+        const chainsQuery = `7-eleven cheers in ${selectedArea.trim()}, Singapore`;
 
         // Search 1: General convenience stores
         const convRequestBody = {
           textQuery: convenienceQuery,
           includedType: "convenience_store",
           maxResultCount: 25,
-          locationRestriction: {
-            rectangle: {
-              low: { latitude: 1.1, longitude: 103.5 },
-              high: { latitude: 22.6, longitude: 114.5 }
+          locationBias: {
+            circle: {
+              center: { latitude: 1.3521, longitude: 103.8198 },
+              radius: 30000.0
             }
           }
         };
@@ -203,29 +203,29 @@ const StoreLocator: React.FC = () => {
         const chainsRequestBody = {
           textQuery: chainsQuery,
           maxResultCount: 25,
-          locationRestriction: {
-            rectangle: {
-              low: { latitude: 1.1, longitude: 103.5 },
-              high: { latitude: 22.6, longitude: 114.5 }
+          locationBias: {
+            circle: {
+              center: { latitude: 1.3521, longitude: 103.8198 },
+              radius: 30000.0
             }
           }
         };
 
         const [convResponse, chainsResponse] = await Promise.all([
-          fetch(`https://places.googleapis.com/v1/places:searchText`, {
+          fetch(`http://localhost:3001/api/places/searchText`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'X-Goog-Api-Key': apiKey,
+              'X-Api-Key': apiKey,
               'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
             },
             body: JSON.stringify(convRequestBody)
           }),
-          fetch(`https://places.googleapis.com/v1/places:searchText`, {
+          fetch(`http://localhost:3001/api/places/searchText`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'X-Goog-Api-Key': apiKey,
+              'X-Api-Key': apiKey,
               'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
             },
             body: JSON.stringify(chainsRequestBody)
@@ -233,11 +233,17 @@ const StoreLocator: React.FC = () => {
         ]);
 
         if (!convResponse.ok || !chainsResponse.ok) {
-          throw new Error('Places API search failed');
+          const convError = !convResponse.ok ? await convResponse.text() : '';
+          const chainsError = !chainsResponse.ok ? await chainsResponse.text() : '';
+          console.error('API Error Response:', { convError, chainsError });
+          throw new Error(`Places API search failed: ${convError || chainsError}`);
         }
 
         const convResult = await convResponse.json();
         const chainsResult = await chainsResponse.json();
+
+        console.log('Convenience stores result:', convResult);
+        console.log('Chains result:', chainsResult);
 
         // Combine results and remove duplicates
         const convStores = convResult.places || [];
@@ -255,19 +261,21 @@ const StoreLocator: React.FC = () => {
         allStores = uniqueStores;
       } else {
         // For other store types, use the regular single search
-        const url = `https://places.googleapis.com/v1/places:searchText`;
+        const url = `http://localhost:3001/api/places/searchText`;
         const requestBody: any = {
           textQuery: selectedStoreType === 'all' 
-            ? `supermarkets and convenience stores in ${selectedArea.trim()}, Hong Kong or Singapore`
-            : `${selectedStoreType.replace('_', ' ')} in ${selectedArea.trim()}, Hong Kong or Singapore`,
+            ? `supermarkets and convenience stores in ${selectedArea.trim()}, Singapore`
+            : `${selectedStoreType.replace('_', ' ')} in ${selectedArea.trim()}, Singapore`,
           maxResultCount: 50,
-          locationRestriction: {
-            rectangle: {
-              low: { latitude: 1.1, longitude: 103.5 },
-              high: { latitude: 22.6, longitude: 114.5 }
+          locationBias: {
+            circle: {
+              center: { latitude: 1.3521, longitude: 103.8198 },
+              radius: 30000.0
             }
           }
         };
+
+        console.log('Search query:', requestBody.textQuery);
 
         // Only use includedType for convenience_store, not for supermarket to get more results
         if (selectedStoreType !== 'all' && selectedStoreType !== 'supermarket') {
@@ -278,61 +286,64 @@ const StoreLocator: React.FC = () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Goog-Api-Key': apiKey,
+            'X-Api-Key': apiKey,
             'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
           },
           body: JSON.stringify(requestBody)
         });
 
+        console.log('API Response status:', response.status);
+
         if (!response.ok) {
           const errorText = await response.text();
+          console.error('API Error:', errorText);
           throw new Error(`Places API error: ${response.status} - ${errorText}`);
         }
 
         const result = await response.json();
+        console.log('API Response:', result);
         allStores = result.places || [];
       }
+
+      console.log('API returned stores count:', allStores.length);
+      console.log('Sample stores:', allStores.slice(0, 3));
 
       // Filter to only include stores in Hong Kong or Singapore
       const stores = allStores.filter((store: NearbyStore) => {
         const address = store.formattedAddress.toLowerCase();
         const name = store.displayName.text.toLowerCase();
-        const searchArea = selectedArea.trim().toLowerCase();
 
         // Check if address contains HK/SG indicators
         const hasHKSG = address.includes('singapore') || address.includes('hong kong') ||
                        address.includes('hk') || address.includes('sg') ||
-                       address.includes('singapore ') || address.includes('hong kong ');
+                       /singapore/i.test(address) || /hong kong/i.test(address);
 
-        // Additional check: coordinates should be within HK/SG bounds
+        // More generous bounds check for Singapore and Hong Kong
         const inBounds = (
-          (store.location.latitude >= 1.1 && store.location.latitude <= 1.5 &&
-           store.location.longitude >= 103.5 && store.location.longitude <= 104.1) || // Singapore
-          (store.location.latitude >= 22.1 && store.location.latitude <= 22.6 &&
-           store.location.longitude >= 113.8 && store.location.longitude <= 114.5)   // Hong Kong
+          (store.location.latitude >= 1.0 && store.location.latitude <= 1.6 &&
+           store.location.longitude >= 103.4 && store.location.longitude <= 104.2) || // Singapore (expanded)
+          (store.location.latitude >= 22.0 && store.location.latitude <= 22.7 &&
+           store.location.longitude >= 113.7 && store.location.longitude <= 114.6)   // Hong Kong (expanded)
         );
-
-        // Additional check: address should contain the searched area (to avoid irrelevant results)
-        const hasSearchArea = address.includes(searchArea) || 
-                             name.includes(searchArea) ||
-                             // Handle common area variations
-                             (searchArea === 'woodlands' && (address.includes('woodlands') || address.includes('woodland'))) ||
-                             (searchArea === 'yishun' && (address.includes('yishun') || address.includes('yishan'))) ||
-                             (searchArea === 'central' && address.includes('central')) ||
-                             (searchArea === 'orchard' && address.includes('orchard'));
 
         // Exclude specific unwanted stores
         const isExcludedStore = name.includes('homekong mart') || name.includes('鄉港旺舖');
 
-        return (hasHKSG || inBounds) && hasSearchArea && !isExcludedStore;
+        console.log(`Store: ${name}, inBounds: ${inBounds}, hasHKSG: ${hasHKSG}, excluded: ${isExcludedStore}`);
+
+        // Accept if either in bounds OR has HK/SG in address
+        return (hasHKSG || inBounds) && !isExcludedStore;
       });
+
+      console.log('Filtered stores count:', stores.length);
 
       setResults(stores);
 
       if (stores.length === 0) {
+        console.log('No stores after filtering. All stores:', allStores);
         toast({
           title: 'No stores found',
-          description: `No stores found in "${selectedArea}". Try a different area name or check spelling.`,
+          description: `No stores found in "${selectedArea}". API returned ${allStores.length} results but none matched filters. Check console for details.`,
         });
       }
     } catch (error) {
@@ -418,7 +429,7 @@ const StoreLocator: React.FC = () => {
 
       console.log('Searching for nearby stores at:', location);
 
-      const url = 'https://places.googleapis.com/v1/places:searchNearby';
+      const url = 'http://localhost:3001/api/places/searchNearby';
       const requestBody = {
         includedTypes: selectedStoreType === 'all' 
           ? ["supermarket", "convenience_store"]
@@ -445,7 +456,7 @@ const StoreLocator: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
+          'X-Api-Key': apiKey,
           'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours,places.priceLevel'
         },
         body: JSON.stringify(requestBody)
@@ -470,7 +481,7 @@ const StoreLocator: React.FC = () => {
         // Check if address contains HK/SG indicators
         const hasHKSG = address.includes('singapore') || address.includes('hong kong') ||
                        address.includes('hk') || address.includes('sg') ||
-                       address.includes('singapore ') || address.includes('hong kong ');
+                       /\bsingapore\b/.test(address) || /\bhong kong\b/.test(address);
 
         // Additional check: coordinates should be within HK/SG bounds
         const inBounds = (
@@ -480,7 +491,10 @@ const StoreLocator: React.FC = () => {
            store.location.longitude >= 113.8 && store.location.longitude <= 114.5)   // Hong Kong
         );
 
-        return hasHKSG || inBounds;
+        // Exclude specific unwanted stores
+        const isExcludedStore = name.includes('homekong mart') || name.includes('鄉港旺舖');
+
+        return (hasHKSG || inBounds) && !isExcludedStore;
       });
 
       setNearbyStores(filteredStores);
@@ -878,7 +892,7 @@ const StoreLocator: React.FC = () => {
         const displayName = CHAIN_DISPLAY_NAME[chainId];
         if (!displayName) continue;
 
-        const url = 'https://places.googleapis.com/v1/places:searchText';
+        const url = 'http://localhost:3001/api/places/searchText';
         const requestBody = {
           textQuery: `${displayName} supermarket`,
           includedType: "supermarket",
@@ -898,7 +912,7 @@ const StoreLocator: React.FC = () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Goog-Api-Key': apiKey,
+            'X-Api-Key': apiKey,
             'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours'
           },
           body: JSON.stringify(requestBody)
