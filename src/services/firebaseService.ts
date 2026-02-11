@@ -112,13 +112,12 @@ export const getProducts = async (userId: string): Promise<any[]> => {
   return Array.from(map.values());
 };
 
-export const createProduct = async (product: { name: string; brand?: string; category: string; barcode?: string; defaultShelfLifeDays?: number; source?: string; createdBy?: string; }): Promise<string> => {
+export const createProduct = async (product: { name: string; brand?: string; category: string; defaultShelfLifeDays?: number; source?: string; createdBy?: string; }): Promise<string> => {
   const data: any = {
     name: product.name,
   };
   if (product.brand !== undefined) data.brand = product.brand;
   if (product.category !== undefined) data.category = product.category;
-  if (product.barcode !== undefined) data.barcode = product.barcode;
   if (typeof product.defaultShelfLifeDays === 'number' && !isNaN(product.defaultShelfLifeDays)) {
     data.defaultShelfLifeDays = product.defaultShelfLifeDays;
   }
@@ -239,23 +238,33 @@ export const getRecommendedRecipes = async (userId: string): Promise<RecipeWithS
       }
     }
     
-    // Only include recipes with 1 or fewer missing ingredients
-    if (missingIngredients.length <= 1) {
-      const aiData = await getRecipeAI(recipe.id!);
-      scoredRecipes.push({
-        ...recipe,
-        score,
-        matchedIngredients,
-        expiringIngredients,
-        missingIngredients,
-        aiData: aiData || undefined
-      });
+    // Include all recipes regardless of missing ingredients, just score them
+    const aiData = await getRecipeAI(recipe.id!);
+    scoredRecipes.push({
+      ...recipe,
+      score,
+      matchedIngredients,
+      expiringIngredients,
+      missingIngredients,
+      aiData: aiData || undefined
+    });
+  }
+
+  // De-duplicate by recipe name, keeping the highest-scoring version
+  const dedupedMap = new Map<string, RecipeWithScore>();
+  for (const recipe of scoredRecipes) {
+    const key = recipe.name.toLowerCase().trim();
+    const existing = dedupedMap.get(key);
+    if (!existing || recipe.score > existing.score) {
+      dedupedMap.set(key, recipe);
     }
   }
-  
+
+  const dedupedRecipes = Array.from(dedupedMap.values());
+
   // Sort by score descending
-  console.log(`[getRecommendedRecipes] Returning ${scoredRecipes.length} scored recipes`);
-  return scoredRecipes.sort((a, b) => b.score - a.score);
+  console.log(`[getRecommendedRecipes] Returning ${dedupedRecipes.length} scored recipes after dedup`);
+  return dedupedRecipes.sort((a, b) => b.score - a.score);
 };
 
 // ============ SAVED RECIPES ============
@@ -497,17 +506,6 @@ export const parseSearchText = (searchString: string): { item: string; area: str
   return { item, area };
 };
 
-/**
- * Placeholder for barcode scanning integration
- * Will be connected to OpenFoodFacts API
- */
-export const lookupBarcode = async (barcode: string): Promise<Partial<InventoryItem> | null> => {
-  // TODO: Connect to OpenFoodFacts API
-  // For now, return null to indicate manual entry needed
-  console.log('Barcode lookup placeholder:', barcode);
-  return null;
-};
-
 // ============ SEED DATA ============
 
 export const seedSampleData = async (userId: string): Promise<void> => {
@@ -515,9 +513,9 @@ export const seedSampleData = async (userId: string): Promise<void> => {
   
   // Sample products
   const products = [
-    { name: 'Eggs', brand: 'Farm Fresh', category: 'Dairy', barcode: '1234567890', defaultShelfLifeDays: 21 },
-    { name: 'Milk', brand: 'Meiji', category: 'Dairy', barcode: '1234567891', defaultShelfLifeDays: 7 },
-    { name: 'Broccoli', brand: '', category: 'Vegetables', barcode: '1234567892', defaultShelfLifeDays: 5 }
+    { name: 'Eggs', brand: 'Farm Fresh', category: 'Dairy', defaultShelfLifeDays: 21 },
+    { name: 'Milk', brand: 'Meiji', category: 'Dairy', defaultShelfLifeDays: 7 },
+    { name: 'Broccoli', brand: '', category: 'Vegetables', defaultShelfLifeDays: 5 }
   ];
   
   for (const product of products) {

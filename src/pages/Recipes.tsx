@@ -77,7 +77,7 @@ const Recipes: React.FC = () => {
 
     setGenerating(true);
     try {
-      // Generate recipes via Railway webhook
+      // Trigger generation via webhook; it saves recipes to Firestore
       const generatedRecipes = await generateRecipes(user.uid, strictOnly, preferenceText);
 
       if (generatedRecipes.length === 0) {
@@ -89,15 +89,12 @@ const Recipes: React.FC = () => {
         return;
       }
 
-      // Save recipes to Firestore
-      const savedRecipes = await saveRecipes(user.uid, generatedRecipes);
-
-      // Update local state
-      setAiRecipes(prev => [...savedRecipes, ...prev]);
+      // Refresh from Firestore so we display the latest AI recipes
+      await loadData();
 
       toast({
         title: 'Recipes generated!',
-        description: `Created ${savedRecipes.length} new recipe${savedRecipes.length !== 1 ? 's' : ''} based on your preferences.`,
+        description: `Created ${generatedRecipes.length} new recipe${generatedRecipes.length !== 1 ? 's' : ''} based on your preferences.`,
       });
 
       // Clear form

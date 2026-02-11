@@ -1,5 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getInventory,
@@ -28,8 +27,7 @@ import {
   Snowflake,
   Archive,
   Package,
-  Search,
-  ScanBarcode
+  Search
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import InventoryImageUpload from '@/components/InventoryImageUpload';
@@ -42,27 +40,14 @@ const Inventory: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [filter, setFilter] = useState<'all' | 'fridge' | 'freezer' | 'pantry'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Dialog control
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string | 'new' | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [isProductSelectOpen, setIsProductSelectOpen] = useState(false);
-
-  // Editing state
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [previousInventoryCount, setPreviousInventoryCount] = useState(0);
-  const [selectedProductId, setSelectedProductId] = useState<string | 'new' | null>(null);
-
-  const [submitting, setSubmitting] = useState(false);
-
-  // Barcode scanner state
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
-
-  // Inventory form state
   const [formData, setFormData] = useState({
     name: '',
     brand: '',
@@ -72,15 +57,15 @@ const Inventory: React.FC = () => {
     expiryDate: '',
     storage: 'fridge' as 'fridge' | 'freezer' | 'pantry',
     reorderThreshold: 2,
-    defaultShelfLifeDays: undefined as number | undefined
+    defaultShelfLifeDays: undefined as number | undefined,
   });
+  const [previousInventoryCount, setPreviousInventoryCount] = useState(0);
 
   // ------------------------- MEMO: PRODUCT FILTER -------------------------
   const userProducts = products.filter(
     (p) => p.source === 'manual' || p.createdBy === user?.uid
   );
 
-  // ------------------------- RESET FORM -------------------------
   const resetForm = () => {
     setFormData({
       name: '',
@@ -234,144 +219,6 @@ const Inventory: React.FC = () => {
       });
     }
   };
-
-  // -------------------- BARCODE SCANNING --------------------
-  useEffect(() => {
-    if (!isScannerOpen) {
-      // Scanner dialog is closed → clean up
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(() => {});
-        scannerRef.current = null;
-      }
-      return;
-    }
-
-    // Only run in browser
-    if (typeof window === 'undefined') return;
-
-    const timer = setTimeout(() => {
-      try {
-        const qrElement = document.getElementById('qr-reader');
-        if (!qrElement) {
-          console.warn('qr-reader element not found');
-          return;
-        }
-
-        const scanner = new Html5QrcodeScanner(
-          'qr-reader',
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          false
-        );
-
-        const onScanSuccess = async (barcode: string) => {
-          console.log('Barcode detected:', barcode);
-          try {
-            await scanner.clear();
-          } catch (e) {
-            console.warn('Error clearing scanner:', e);
-          }
-          scannerRef.current = null;
-          setIsScannerOpen(false);
-          await searchFoodDatabase(barcode);
-        };
-
-        const onScanError = (error: string) => {
-          console.warn('QR error:', error);
-        };
-
-        scanner.render(onScanSuccess, onScanError);
-        scannerRef.current = scanner;
-      } catch (error) {
-        console.error('Failed to initialize scanner:', error);
-      }
-    }, 100);
-
-    return () => {
-      clearTimeout(timer);
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(() => {});
-        scannerRef.current = null;
-      }
-    };
-  }, [isScannerOpen]);
-
-  const searchFoodDatabase = async (barcode: string) => {
-  try {
-    // OpenFoodFacts barcode lookup
-    const response = await fetch(
-      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`
-    );
-    const data = await response.json();
-
-    // OpenFoodFacts uses status = 1 when product is found
-    if (data.status === 1 && data.product) {
-      const p = data.product;
-
-      const name =
-        p.product_name ||
-        p.product_name_en ||
-        p.generic_name ||
-        'Unknown product';
-
-      const brand =
-        p.brands ||
-        (Array.isArray(p.brands_tags) ? p.brands_tags[0] : '') ||
-        '';
-
-      // Take first category if available, else fallback
-      let category = 'Other';
-      if (p.categories_tags && p.categories_tags.length > 0) {
-        // categories_tags look like "en:dairies", take the part after ":"
-        const firstCat = p.categories_tags[0];
-        category = firstCat.includes(':')
-          ? firstCat.split(':')[1].replace(/-/g, ' ')
-          : firstCat;
-      } else if (p.categories) {
-        // categories is a comma-separated string
-        category = p.categories.split(',')[0].trim();
-      }
-
-      setFormData({
-        name,
-        brand,
-        category,
-        quantity: 1,
-        quantityUnit: 'pcs',
-        expiryDate: '',
-        storage: 'fridge',
-        reorderThreshold: 2,
-        defaultShelfLifeDays: undefined, // you can later infer from category
-      });
-
-      // Treat as a new product template to be saved into your products collection
-      setSelectedProductId('new');
-      setIsDialogOpen(true);
-
-      toast({
-        title: 'Product found!',
-        description: `${name}${brand ? ' by ' + brand : ''}`,
-      });
-    } else {
-      toast({
-        title: 'Product not found',
-        description: 'This barcode is not in OpenFoodFacts. You can create a new item manually.',
-        variant: 'destructive',
-      });
-      // Optional: directly open dialog with empty form for manual entry
-      setSelectedProductId('new');
-      resetForm();
-      setIsDialogOpen(true);
-    }
-  } catch (error) {
-    console.error('Food database search failed:', error);
-    toast({
-      title: 'Search failed',
-      description: 'Could not reach OpenFoodFacts. Please try again or add manually.',
-      variant: 'destructive',
-    });
-  }
-};
-
 
   // -------------------- FILTERING --------------------
   const filteredInventory = inventory.filter(item => {
@@ -696,25 +543,6 @@ const Inventory: React.FC = () => {
           </DialogContent>
         </Dialog>
 
-        {/* BARCODE SCANNER MODAL */}
-        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-          <DialogContent className="bg-card sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Scan Barcode</DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              <div id="qr-reader" className="w-full"></div>
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => setIsScannerOpen(false)}
-              >
-                Cancel
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* IMAGE UPLOAD SECTION */}
@@ -805,17 +633,6 @@ const Inventory: React.FC = () => {
                 <Archive className="mr-1 h-4 w-4" /> Pantry
               </Button>
             </div>
-
-            {/* Barcode scanner button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsScannerOpen(true)}
-              className="gap-2"
-            >
-              <ScanBarcode className="h-4 w-4" />
-              Scan
-            </Button>
           </div>
         </CardContent>
       </Card>
